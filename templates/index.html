@@ -4,6 +4,7 @@
     <div class="buttons_container">
         <button class="new-product-btn" title="Crear nuevo producto" onclick="openModal()">Crear producto</button>
         <button class="new-product-btn" title="Crear nueva categoria" onclick="openModalCategory()">Crear categoría</button>
+        <button class="new-product-btn" title="Eliminar categoría" onclick="openModalDeleteCategory()">Eliminar categoría</button>
         <a class="new-product-btn" title="Inventario" href="{{ url_for('inventario') }}">Inventario</a>
         <button class="new-product-btn" title="Cerrar sesión" onclick="logout()">Cerrar sesión</button>
     </div>
@@ -131,6 +132,25 @@
                 <input type="text" name="name" id="name" placeholder="ej. Bebidas" required>
 
                 <button type="submit">Guardar</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Ventana modal para eliminar categorias -->
+    <div id="modal_delete_category" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModalDeleteCategory()">&times;</span>
+            <h2>Eliminar categoría</h2>
+
+            <form action="{{ url_for('delete_category') }}" method="POST" enctype="multipart/form-data">
+                <label for="categoria">Categoria:</label>
+                <select name="categoria" id="categoria" required>
+                    {% for categoria in categoriaslist %}
+                        <option value="{{ categoria.id }}">{{ categoria.name }}</option>
+                    {% endfor %}
+                </select>
+
+                <button type="submit">Eliminar</button>
             </form>
         </div>
     </div>

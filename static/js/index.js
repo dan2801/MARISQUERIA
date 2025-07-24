@@ -56,6 +56,16 @@ function closeModalCategory() {
     modal.classList.remove('show');
 }
 
+function openModalDeleteCategory() {
+    const modal = document.getElementById('modal_delete_category');
+    modal.classList.add('show');
+}
+
+function closeModalDeleteCategory() {
+    const modal = document.getElementById('modal_delete_category');
+    modal.classList.remove('show');
+}
+
 window.onclick = function(event) {
     const modal = document.getElementById('modal_category');
     if (event.target == modal) {

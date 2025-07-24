@@ -142,6 +142,21 @@ def create_category():
         db.session.commit()
         return redirect(url_for('index'))
 
+@app.route('/delete_category', methods=['GET', 'POST'])
+def delete_category():
+    if 'username' not in session:
+        return redirect(url_for('login'))
+    if request.method == 'POST':
+        categoria_id = request.form['categoria']
+        categoria = Category.query.filter_by(id=categoria_id).first()
+        if categoria:
+            db.session.delete(categoria)
+            db.session.commit()
+            flash("Categoría eliminada con éxito", "success")
+        else:
+            flash("La categoría no existe", "error")
+    return redirect(url_for('index'))
+
 @app.route('/edit/<int:id>', methods=['POST'])
 def edit(id):
     if 'username' not in session:
