@@ -11,6 +11,22 @@
     <script src="{{ url_for('static', filename='js/index.js') }}"></script>
 </head>
 <body>
+    <header>
+        <nav class="nav__menu not-active">
+            <a href="#" class="nav-link">Home</a>
+            <a href="{{ url_for('inventario') }}" class="nav-link">Inventario</a>
+            <a href="{{ url_for('admin') }}" class="nav-link">Administrar Usuarios</a>
+            <button onclick="logout()" class="nav-link">Cerrar Sesión</button>
+        </nav>
+
+        <div class="menu-button menu-not-active" id="menu-button">
+            <span></span>
+            <span></span>
+            <span></span>
+        </div>
+    </header>
+
+    <script src="{{ url_for('static', filename='js/base.js') }}"></script>
     <div class="container">
         <h1>MARISQUERÍA LA FLOR DEL PUERTO</h1>
         {% block content %}{% endblock %}

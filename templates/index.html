@@ -2,12 +2,9 @@
 
 {% block content %}
     <div class="buttons_container">
-        <button class="new-product-btn" title="Crear nuevo producto" onclick="openModal()">Crear producto</button>
-        <button class="new-product-btn" title="Crear nueva categoria" onclick="openModalCategory()">Crear categoría</button>
-        <button class="new-product-btn" title="Eliminar categoría" onclick="openModalDeleteCategory()">Eliminar categoría</button>
-        <a class="new-product-btn" title="Inventario" href="{{ url_for('inventario') }}">Inventario</a>
-        <a href="{{ url_for('admin') }}">Administrar usuarios</a>
-        <button class="new-product-btn" title="Cerrar sesión" onclick="logout()">Cerrar sesión</button>
+        <button class="btn" title="Crear nuevo producto" onclick="openModal()">+ Producto</button>
+        <button class="btn" title="Crear nueva categoria" onclick="openModalCategory()">+ Categoría</button>
+        <button class="btn" title="Eliminar categoría" onclick="openModalDeleteCategory()">- Categoría</button>
     </div>
 
     {% for categoria, productos in cat.items() %}
@@ -33,7 +30,7 @@
                             <div class="right-side_container">
                                 <p class="price">MXN ${{ product.price }}</p>
                                 <div class="btn_container">
-                                    <button type="submit" onclick="openModalEdit({{ product.id }})">
+                                    <button type="submit" class="btn" onclick="openModalEdit({{ product.id }})">
                                         <svg xmlns="http://www.w3.org/2000/svg" height="16" width="16" viewBox="0 0 512 512"><path fill="#f3e5dc" d="M362.7 19.3L314.3 67.7 444.3 197.7l48.4-48.4c25-25 25-65.5 0-90.5L453.3 19.3c-25-25-65.5-25-90.5 0zm-71 71L58.6 323.5c-10.4 10.4-18 23.3-22.2 37.4L1 481.2C-1.5 489.7 .8 498.8 7 505s15.3 8.5 23.7 6.1l120.3-35.4c14.1-4.2 27-11.8 37.4-22.2L421.7 220.3 291.7 90.3z"/></svg>
                                     </button>
 
@@ -69,7 +66,7 @@
                                     </div>
 
                                     <form action="{{ url_for('delete', id=product.id) }}" method="POST" style="display:inline;">
-                                        <button type="submit" onclick="return confirm('¿Estás seguro de que deseas eliminar este producto?');">
+                                        <button type="submit" class="btn" onclick="return confirm('¿Estás seguro de que deseas eliminar este producto?');">
                                             <svg  xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 24 24" ><path d="M20 4H8.51c-.64 0-1.25.31-1.63.84l-4.7 6.58a.99.99 0 0 0 0 1.16l4.7 6.58c.37.52.98.84 1.63.84H20c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2m0 14H8.51l-4.29-6 4.29-6H20z"></path><path d="m9.79 9.21 2.8 2.79-2.8 2.79 1.42 1.42 2.79-2.8 2.79 2.8 1.42-1.42-2.8-2.79 2.8-2.79-1.42-1.42-2.79 2.8-2.79-2.8z"></path>
                                             </svg>
                                         </button>
@@ -117,7 +114,7 @@
                     <input type="file" name="image" id="image" required>
                 </div>
 
-                <button type="submit">Guardar</button>
+                <button type="submit" class="btn">Guardar</button>
             </form>
         </div>
     </div>
@@ -132,7 +129,7 @@
                 <label for="name">Nombre:</label>
                 <input type="text" name="name" id="name" placeholder="ej. Bebidas" required>
 
-                <button type="submit">Guardar</button>
+                <button type="submit" class="btn">Guardar</button>
             </form>
         </div>
     </div>
@@ -151,7 +148,7 @@
                     {% endfor %}
                 </select>
 
-                <button type="submit">Eliminar</button>
+                <button type="submit" class="btn">Eliminar</button>
             </form>
         </div>
     </div>

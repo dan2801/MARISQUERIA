@@ -176,7 +176,7 @@ def edit_user(id):
         return redirect(url_for('login'))
     user = User.query.get_or_404(id)
 
-    if request.method == 'POST':
+    if request.method == 'POST' and session['tipo_usuario'] == 'admin':
         user.username = request.form['username']
         user.rol = request.form['rol']
         db.session.commit()
@@ -186,10 +186,11 @@ def edit_user(id):
 def delete_user(id):
     if 'username' not in session:
         return redirect(url_for('login'))
-    user = User.query.get_or_404(id)
-    db.session.delete(user)
-    db.session.commit()
-    return redirect(url_for('admin'))
+    if session['tipo_usuario'] == 'admin':
+        user = User.query.get_or_404(id)
+        db.session.delete(user)
+        db.session.commit()
+        return redirect(url_for('admin'))
 
 @app.route('/edit/<int:id>', methods=['POST'])
 def edit(id):
@@ -197,7 +198,7 @@ def edit(id):
         return redirect(url_for('login'))
     product = Product.query.get_or_404(id)
 
-    if request.method == 'POST':
+    if request.method == 'POST' and session['tipo_usuario'] == 'admin':
         product.name = request.form['name']
         product.categoria = int(request.form['categoria'])
         product.price = float(request.form['price'])
@@ -229,15 +230,16 @@ def delete(id):
         return redirect(url_for('login'))
     product = Product.query.get_or_404(id)
 
-    # Eliminar imagen del sistema si existe
-    if product.image:
-        image_path = os.path.join(app.config['UPLOAD_FOLDER'], product.image)
-        if os.path.exists(image_path):
-            os.remove(image_path)
+    if request.method == 'POST' and session['tipo_usuario'] == 'admin':
+        # Eliminar imagen del sistema si existe
+        if product.image:
+            image_path = os.path.join(app.config['UPLOAD_FOLDER'], product.image)
+            if os.path.exists(image_path):
+                os.remove(image_path)
     
-    db.session.delete(product)
-    db.session.commit()
-    return redirect(url_for('index'))
+        db.session.delete(product)
+        db.session.commit()
+        return redirect(url_for('index'))
 
 @app.route('/inventario', methods=['GET'])
 def inventario():
