@@ -47,19 +47,22 @@ def login():
             return redirect(url_for('index'))
         else:
             flash('Usuario o contraseña incorrectos', 'error')
+            print("Usuario o contraseña incorrectos", session)
     return render_template('login.html')
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
-    if request.method == 'POST':
+    if request.method == 'POST' and session['tipo_usuario'] == 'admin':
         username = request.form['username']
         password = request.form['password']
-        user = User(username=username)
+        rol = request.form['rol']
+        user = User(username=username, rol=rol)
         user.set_password(password)
         db.session.add(user)
         db.session.commit()
-        return redirect(url_for('login'))
-    return render_template('register.html')
+        return redirect(url_for('admin'))
+    else:
+        return redirect(url_for('index'))
 
 @app.route('/logout', methods=['POST'])
 def logout():
@@ -156,6 +159,37 @@ def delete_category():
         else:
             flash("La categoría no existe", "error")
     return redirect(url_for('index'))
+
+@app.route('/admin', methods=['GET'])
+def admin():
+    if 'username' not in session:
+        return redirect(url_for('login'))
+
+    if session['tipo_usuario'] == 'admin':
+        return render_template('admin.html', users=User.query.all())
+    else:
+        return redirect(url_for('index'))
+
+@app.route('/edit_user/<int:id>', methods=['POST'])
+def edit_user(id):
+    if 'username' not in session:
+        return redirect(url_for('login'))
+    user = User.query.get_or_404(id)
+
+    if request.method == 'POST':
+        user.username = request.form['username']
+        user.rol = request.form['rol']
+        db.session.commit()
+        return redirect(url_for('admin'))
+
+@app.route('/delete_user/<int:id>', methods=['POST'])
+def delete_user(id):
+    if 'username' not in session:
+        return redirect(url_for('login'))
+    user = User.query.get_or_404(id)
+    db.session.delete(user)
+    db.session.commit()
+    return redirect(url_for('admin'))
 
 @app.route('/edit/<int:id>', methods=['POST'])
 def edit(id):

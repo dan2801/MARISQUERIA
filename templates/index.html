@@ -6,6 +6,7 @@
         <button class="new-product-btn" title="Crear nueva categoria" onclick="openModalCategory()">Crear categoría</button>
         <button class="new-product-btn" title="Eliminar categoría" onclick="openModalDeleteCategory()">Eliminar categoría</button>
         <a class="new-product-btn" title="Inventario" href="{{ url_for('inventario') }}">Inventario</a>
+        <a href="{{ url_for('admin') }}">Administrar usuarios</a>
         <button class="new-product-btn" title="Cerrar sesión" onclick="logout()">Cerrar sesión</button>
     </div>
 
@@ -173,5 +174,4 @@
         </div>
     </div>
 
-    <script src="{{ url_for('static', filename='js/index.js') }}"></script>
 {% endblock %}
