@@ -1,0 +1,5 @@
+# Archivos de Python
+__pycache__
+
+# Archivos de Flask
+.venv

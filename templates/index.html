@@ -1,0 +1,157 @@
+{% extends 'base.html' %}
+
+{% block content %}
+    <div class="buttons_container">
+        <button class="new-product-btn" title="Crear nuevo producto" onclick="openModal()">Crear producto</button>
+        <button class="new-product-btn" title="Crear nueva categoria" onclick="openModalCategory()">Crear categoría</button>
+        <a class="new-product-btn" title="Inventario" href="{{ url_for('inventario') }}">Inventario</a>
+        <button class="new-product-btn" title="Cerrar sesión" onclick="logout()">Cerrar sesión</button>
+    </div>
+
+    {% for categoria, productos in cat.items() %}
+        <div class="categoria">
+            <details onclick="toggleCategoria('{{ categoria|replace(' ', '_') }}')" style="cursor:pointer;">
+                <summary>{{ categoria }}</summary>
+            </details>
+
+            <div id="{{ categoria|replace(' ', '_') }}" class="productos" style="display: none;">
+                {% for product in productos %}
+                    <div class="product">
+                        <div class="image_container">
+                        {% if product.image %}
+                            <img src="{{ url_for('static', filename='uploads/' + product.image) }}" alt="{{ product.name }}">
+                        {% endif %}
+                        </div>
+
+                        <div class="text_container">
+                            <div class="left-side_container">
+                                <h3>{{ product.name }}</h3>
+                                <p>{{ product.description }}</p>
+                            </div>
+                            <div class="right-side_container">
+                                <p class="price">MXN ${{ product.price }}</p>
+                                <div class="btn_container">
+                                    <button type="submit" onclick="openModalEdit({{ product.id }})">
+                                        <svg xmlns="http://www.w3.org/2000/svg" height="16" width="16" viewBox="0 0 512 512"><path fill="#f3e5dc" d="M362.7 19.3L314.3 67.7 444.3 197.7l48.4-48.4c25-25 25-65.5 0-90.5L453.3 19.3c-25-25-65.5-25-90.5 0zm-71 71L58.6 323.5c-10.4 10.4-18 23.3-22.2 37.4L1 481.2C-1.5 489.7 .8 498.8 7 505s15.3 8.5 23.7 6.1l120.3-35.4c14.1-4.2 27-11.8 37.4-22.2L421.7 220.3 291.7 90.3z"/></svg>
+                                    </button>
+
+                                    <!-- Ventana modal para editar items -->
+                                    <div id="modal_edit{{ product.id }}" class="modal">
+                                        <div class="modal-content">
+                                            <span class="close" onclick="closeModalEdit({{ product.id }})">&times;</span>
+                                            <h2>Editar producto</h2>
+
+                                            <form action="{{ url_for('edit', id=product.id) }}" method="POST" enctype="multipart/form-data">
+                                                <label for="name">Nombre:</label>
+                                                <input type="text" name="name" value="{{ product.name }}" required>
+
+                                                <label for="categoria">Categoria:</label>
+                                                <select name="categoria" required>
+                                                    {% for categoria in categoriaslist %}
+                                                        <option value="{{ categoria.id }}">{{ categoria.name }}</option>
+                                                    {% endfor %}
+                                                </select>
+
+                                                <label for="price">Precio:</label>
+                                                <input type="number" name="price" value="{{ product.price }}" required>
+
+                                                <label for="description">Descripción:</label>
+                                                <textarea name="description" required rows="1">{{ product.description }}</textarea>
+
+                                                <label for="image">Imagen:</label>
+                                                <input type="file" name="image" value="{{ product.image }}">
+
+                                                <button type="submit">Actualizar</button>
+                                            </form>
+                                        </div>
+                                    </div>
+
+                                    <form action="{{ url_for('delete', id=product.id) }}" method="POST" style="display:inline;">
+                                        <button type="submit" onclick="return confirm('¿Estás seguro de que deseas eliminar este producto?');">
+                                            <svg  xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 24 24" ><path d="M20 4H8.51c-.64 0-1.25.31-1.63.84l-4.7 6.58a.99.99 0 0 0 0 1.16l4.7 6.58c.37.52.98.84 1.63.84H20c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2m0 14H8.51l-4.29-6 4.29-6H20z"></path><path d="m9.79 9.21 2.8 2.79-2.8 2.79 1.42 1.42 2.79-2.8 2.79 2.8 1.42-1.42-2.8-2.79 2.8-2.79-1.42-1.42-2.79 2.8-2.79-2.8z"></path>
+                                            </svg>
+                                        </button>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+        </div>
+    {% endfor %}
+
+    {% if cat|length == 0 %}
+        <div>No hay productos aún.</div>
+    {% endif %}
+    
+    <!-- Ventana modal para crear productos -->
+    <div id="modal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal()">&times;</span>
+            <h2>Crear producto</h2>
+
+            <form action="{{ url_for('create') }}" method="POST" enctype="multipart/form-data">
+                <label for="name">Nombre:</label>
+                <input type="text" name="name" id="name" placeholder="ej. Cerveza" required>
+
+                <label for="categoria">Categoria:</label>
+                <select name="categoria" id="categoria" required>
+                    {% for categoria in categoriaslist %}
+                        <option value="{{ categoria.id }}">{{ categoria.name }}</option>
+                    {% endfor %}
+                </select>
+
+                <label for="price">Precio:</label>
+                <input type="number" name="price" id="price" placeholder="$00.0" required>
+
+                <label for="description">Descripción:</label>
+                <textarea name="description" id="description" placeholder="ej. Cerveza de 600ml" required rows="1"></textarea>
+
+                <label for="stock">Stock:</label>
+                <input type="number" name="stock" id="stock" placeholder="ej. 10" required>
+
+                <div class="file-select">
+                    <label for="image">Imagen:</label>
+                    <input type="file" name="image" id="image" required>
+                </div>
+
+                <button type="submit">Guardar</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Ventana modal para crear categorias -->
+    <div id="modal_category" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModalCategory()">&times;</span>
+            <h2>Crear categoría</h2>
+
+            <form action="{{ url_for('create_category') }}" method="POST" enctype="multipart/form-data">
+                <label for="name">Nombre:</label>
+                <input type="text" name="name" id="name" placeholder="ej. Bebidas" required>
+
+                <button type="submit">Guardar</button>
+            </form>
+        </div>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            <div id="flash-messages" style="display:none;">
+                {% for category, message in messages %}
+                    <div class="flash-message" data-category="{{ category }}">{{ message }}</div>
+                {% endfor %}
+            </div>
+        {% endif %}
+    {% endwith %}
+
+    <!-- Modal de alerta -->
+    <div id="modal-flash" class="modal modal-flash">
+        <div class="modal-content">
+            <span class="close" onclick="closeFlashModal()">&times;</span>
+            <p id="flash-message-text"></p>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/index.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Inventario por Secciones</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/inventario.css') }}" />
+</head>
+<body>
+    <div class="fondo"></div>
+
+    <h1>Inventario</h1>
+    <!-- Selector de sección -->
+    <div id="selector-seccion" style="margin-bottom: 20px;">
+        <button onclick="mostrarSeccion('bebidas')">Bebidas</button>
+        <button onclick="mostrarSeccion('cervezas')">Cervezas</button>
+        <button onclick="mostrarSeccion('miscelaneos')">Misceláneos</button>
+    </div>
+
+    <div id="secciones">
+    <section id="bebidas" class="inventario-seccion" style="display:none;">
+        <div class="seccion-header">
+            <h2>Bebidas</h2>
+            <button class="btn-agregar">Agregar</button>
+        </div>
+        <table>
+            <thead>
+                <tr><th>#</th><th>Producto</th><th>Descripción</th><th>Cantidad</th><th>Precio</th><th>Acciones</th></tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </section>
+
+    <section id="cervezas" class="inventario-seccion" style="display:none;">
+        <div class="seccion-header">
+            <h2>Cervezas</h2>
+            <button class="btn-agregar">Agregar</button>
+        </div>
+        <table>
+            <thead>
+                <tr><th>#</th><th>Producto</th><th>Descripción</th><th>Cantidad</th><th>Precio</th><th>Acciones</th></tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </section>
+
+    <section id="miscelaneos" class="inventario-seccion" style="display:none;">
+        <div class="seccion-header">
+            <h2>Misceláneos</h2>
+            <button class="btn-agregar">Agregar</button>
+        </div>
+        <table>
+            <thead>
+                <tr><th>#</th><th>Producto</th><th>Descripción</th><th>Cantidad</th><th>Precio</th><th>Acciones</th></tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </section>
+    </div>
+
+    <!-- Formulario Agregar / Actualizar Producto -->
+    <div id="formulario-contenedor" style="display:none;">
+    <h2>Agregar o actualizar producto en <span id="form-seccion"></span></h2>
+    <form id="formulario">
+        <label for="nombre">Nombre del producto</label>
+        <input type="text" id="nombre" required />
+
+        <label for="descripcion">Descripción</label>
+        <input type="text" id="descripcion" />
+
+        <label for="cantidad">Cantidad (empaques)</label>
+        <input type="number" id="cantidad" min="0" required />
+
+        <label for="unidades">Unidades por empaque</label>
+        <input type="number" id="unidades" min="1" value="1" required />
+
+        <label for="precio">Precio unitario</label>
+        <input type="number" id="precio" step="0.01" required />
+
+        <label for="seccion" style="display:none;">Sección</label>
+        <input type="text" id="seccion" readonly style="display:none;" />
+
+        <button type="submit">Agregar / Actualizar</button>
+        <button type="button" onclick="cerrarFormulario()">Cancelar</button>
+    </form>
+    </div>
+
+    <!-- Formulario para sumar/restar unidades -->
+    <div id="modificar-form">
+        <span>Modificar cantidad de: <strong id="producto-seleccionado"></strong></span>
+        <label for="cantidad-ajuste">Cantidad:</label>
+        <input type="number" id="cantidad-ajuste" min="1" />
+        <button id="sumar-btn">Sumar</button>
+        <button id="restar-btn">Restar</button>
+    </div>
+
+    <script src="{{ url_for('static', filename='inventario.js') }}"></script>
+    <script>
+function mostrarSeccion(id) {
+    document.querySelectorAll(".inventario-seccion").forEach(sec => {
+        sec.style.display = (sec.id === id) ? "block" : "none";
+    });
+  // Opcional: guarda la última sección seleccionada en localStorage
+    localStorage.setItem("seccionActiva", id);
+}
+
+// Al cargar la página, mostrar la última sección o bebidas por defecto
+document.addEventListener("DOMContentLoaded", () => {
+    const seccionGuardada = localStorage.getItem("seccionActiva") || "bebidas";
+    mostrarSeccion(seccionGuardada);
+});
+</script>
+<div id="menu-secciones" class="menu-secciones" style="display:none;">
+    <div class="menu-opciones">
+        <button onclick="mostrarSubmenu('crear')">➕ Crear sección</button>
+        <button onclick="mostrarSubmenu('eliminar')">🗑️ Eliminar sección</button>
+    </div>
+
+    <div id="submenu-crear" class="submenu" style="display:none;">
+        <input type="text" id="nueva-seccion-nombre" placeholder="Nombre de sección" />
+        <button onclick="crearSeccionDesdeMenu()">Crear</button>
+    </div>
+
+    <div id="submenu-eliminar" class="submenu" style="display:none;">
+        <div id="lista-secciones"></div>
+        <button onclick="eliminarSeccionesSeleccionadas()">Eliminar seleccionadas</button>
+    </div>
+</div>
+
+</body>
+</html>

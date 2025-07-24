@@ -1,0 +1,105 @@
+{% extends 'base.html' %}
+
+{% block content %}
+    <div class="buttons_container">
+        <button class="new-product-btn" title="Cerrar sesión" onclick="logout()">Cerrar sesión</button>
+    </div>
+
+    {% for categoria, productos in cat.items() %}
+        <div class="categoria">
+            <details onclick="toggleCategoria('{{ categoria|replace(' ', '_') }}')" style="cursor:pointer;">
+                <summary>{{ categoria }}</summary>
+            </details>
+
+            <div id="{{ categoria|replace(' ', '_') }}" class="productos" style="display: none;">
+                {% for product in productos %}
+                    <div class="product" onclick="openModalProduct({{ product.id }})">
+                        <div class="image_container">
+                        {% if product.image %}
+                            <img src="{{ url_for('static', filename='uploads/' + product.image) }}" alt="{{ product.name }}">
+                        {% endif %}
+                        </div>
+
+                        <div class="text_container">
+                            <div class="left-side_container">
+                                <h3>{{ product.name }}</h3>
+                                <p>{{ product.description }}</p>
+                            </div>
+                            <div class="right-side_container">
+                                <p class="price">MXN ${{ product.price }}</p>
+                                <div class="btn_container">
+                                    <button type="submit">
+                                        <svg xmlns="http://www.w3.org/2000/svg" height="16" width="16" viewBox="0 0 512 512"><path fill="#f3e5dc" d="M362.7 19.3L314.3 67.7 444.3 197.7l48.4-48.4c25-25 25-65.5 0-90.5L453.3 19.3c-25-25-65.5-25-90.5 0zm-71 71L58.6 323.5c-10.4 10.4-18 23.3-22.2 37.4L1 481.2C-1.5 489.7 .8 498.8 7 505s15.3 8.5 23.7 6.1l120.3-35.4c14.1-4.2 27-11.8 37.4-22.2L421.7 220.3 291.7 90.3z"/></svg>
+                                    </button>
+
+                                    <!-- Ventana modal para editar items -->
+                                    <div id="modal_product{{ product.id }}" class="modal">
+                                        <div class="modal-content">
+                                            <span class="close" onclick="closeModalProduct({{ product.id }})">&times;</span>
+                                            <h2>Editar producto</h2>
+
+                                            <form action="{{ url_for('edit', id=product.id) }}" method="POST" enctype="multipart/form-data">
+                                                <label for="name">Nombre:</label>
+                                                <input type="text" name="name" id="name" value="{{ product.name }}" required>
+
+                                                <label for="categoria">Categoria:</label>
+                                                <select name="categoria" id="categoria" required>
+                                                    {% for categoria in categoriaslist %}
+                                                        <option value="{{ categoria.id }}">{{ categoria.name }}</option>
+                                                    {% endfor %}
+                                                </select>
+
+                                                <label for="price">Precio:</label>
+                                                <input type="number" name="price" id="price" value="{{ product.price }}" required>
+
+                                                <label for="description">Descripción:</label>
+                                                <textarea name="description" id="description" required rows="1">{{ product.description }}</textarea>
+
+                                                <label for="image">Imagen:</label>
+                                                <input type="file" name="image" id="image" value="{{ product.image }}">
+
+                                                <button type="submit">Actualizar</button>
+                                            </form>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+        </div>
+    {% endfor %}
+
+    {% if cat|length == 0 %}
+        <div>No hay productos aún.</div>
+    {% endif %}
+    
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            <div id="flash-messages" style="display:none;">
+                {% for category, message in messages %}
+                    <div class="flash-message" data-category="{{ category }}">{{ message }}</div>
+                {% endfor %}
+            </div>
+        {% endif %}
+    {% endwith %}
+
+    <!-- Modal de alerta -->
+    <div id="modal-flash" class="modal modal-flash">
+        <div class="modal-content">
+            <span class="close" onclick="closeFlashModal()">&times;</span>
+            <p id="flash-message-text"></p>
+        </div>
+    </div>
+
+    <script>
+        function closeModalProduct(id) {
+            const modal = document.getElementById('modal_product' + id);
+            if (modal) {
+                modal.classList.remove('show');
+            }
+        }
+    </script>
+    <script src="{{ url_for('static', filename='js/index.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/index_user.js') }}"></script>
+{% endblock %}

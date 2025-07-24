@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Marisquería La Flor del Puerto</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/login.css') }}">
+</head>
+<body>
+    <div class="fondo"></div>
+
+    <div class="login-container">
+        <div class="login-header">
+            <img src="{{ url_for('static', filename='images/logo.png') }}" alt="Logo" class="logo-img">
+            <h1 class="titulo">Marisquería La Flor del Puerto</h1>
+        </div>
+
+        <form action="{{ url_for('login') }}" method="POST">
+            <label for="usuario">Nombre de usuario</label>
+            <input type="text" id="usuario" name="username" placeholder="Ingresa tu usuario" required />
+
+            <label for="contrasena">Contraseña</label>
+            <input type="password" id="contrasena" name="password" placeholder="Ingresa tu contraseña" required />
+
+            <button type="submit">Iniciar Sesión</button>
+        </form>
+    </div>
+</body>
+</html>

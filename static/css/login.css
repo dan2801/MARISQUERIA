@@ -1,0 +1,162 @@
+* {
+    box-sizing: border-box;
+    padding: 0;
+    margin: 0;
+}
+
+/* Fondo con imagen desenfocada */
+body, html {
+    margin: 0;
+    padding: 0;
+    max-height: 100%;
+    font-family: 'Segoe UI', sans-serif;
+    background-color: #f3e5dc; /* fallback si no carga imagen */
+}
+
+.fondo {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-image: url('logo.png'); /* imagen de fondo */
+    background-size: cover;
+    background-position: center;
+    filter: blur(8px) brightness(0.6);
+    z-index: -1;
+}
+
+/* Contenedor del login */
+.login-container {
+    width: 100%;
+    max-width: 400px;
+    margin: 60px auto;
+    background: rgba(231, 211, 198, 0.25); /* tono cálido */
+    backdrop-filter: blur(12px);
+    border-radius: 16px;
+    padding: 30px;
+    box-shadow: 0 8px 32px rgba(50, 30, 10, 0.3);
+    color: #4b3621;
+}
+
+/* Estilo encabezado */
+.login-header {
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+.logo-img {
+    width: 100px;
+    height: auto;
+    border-radius: 12px;
+    box-shadow: 0 0 6px rgba(0,0,0,0.3);
+}
+
+.titulo {
+    margin-top: 12px;
+    font-size: 22px;
+    font-weight: bold;
+    color: #5c4033;
+}
+
+/* Inputs */
+form {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+form label {
+    font-weight: 600;
+    color: #5e3b2b;
+}
+
+form input[type="text"],
+form input[type="password"] {
+    padding: 10px;
+    border-radius: 8px;
+    border: none;
+    background-color: #f7ebe6;
+    color: #4b3621;
+    font-size: 14px;
+    outline: none;
+}
+
+form input::placeholder {
+    color: #a18674;
+}
+
+.recordar {
+    display: flex;
+    align-items: center;
+    font-size: 13px;
+    color: #4e3a2d;
+}
+
+.recordar input {
+    margin-right: 6px;
+}
+
+form button {
+    background: linear-gradient(to right, #c58b68, #a96e56);
+    color: white;
+    border: none;
+    padding: 12px;
+    border-radius: 8px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background 0.3s;
+}
+
+form button:hover {
+    background: linear-gradient(to right, #a96e56, #845544);
+}
+/* Responsivo para tablets y móviles */
+@media (max-width: 768px) {
+    .login-container {
+        margin: 40px 20px;
+        padding: 25px;
+        max-width: 90%;
+    }
+
+    .titulo {
+        font-size: 20px;
+    }
+
+    form input[type="text"],
+    form input[type="password"] {
+        font-size: 16px;
+    }
+
+    form button {
+        padding: 14px;
+    }
+}
+
+@media (max-width: 480px) {
+    .login-container {
+        margin: 30px 15px;
+        padding: 20px;
+    }
+
+    .logo-img {
+        width: 80px;
+    }
+
+    .titulo {
+        font-size: 18px;
+    }
+
+    form {
+        gap: 12px;
+    }
+
+    form input {
+        padding: 12px;
+    }
+
+    form button {
+        padding: 12px;
+        font-size: 15px;
+    }
+}

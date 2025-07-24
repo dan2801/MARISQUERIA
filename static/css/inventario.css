@@ -1,0 +1,276 @@
+body {
+    font-family: 'Segoe UI', sans-serif;
+    padding: 20px;
+    background-color: #f3e5dc;
+    color: #4b3621;
+  }
+  
+  h1, h2 {
+    color: #5c4033;
+  }
+  
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 20px;
+    background: rgba(255, 245, 236, 0.9);
+    box-shadow: 0 2px 6px rgba(50, 30, 10, 0.1);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  
+  th, td {
+    padding: 12px;
+    border: 1px solid #d5bba6;
+    text-align: left;
+  }
+  
+  thead {
+    background-color: #ecdcd1;
+    color: #4b3621;
+  }
+  
+  form {
+    margin-top: 30px;
+    background: rgba(231, 211, 198, 0.25);
+    padding: 20px;
+    border-radius: 16px;
+    box-shadow: 0 4px 16px rgba(50, 30, 10, 0.15);
+    backdrop-filter: blur(10px);
+    transition: opacity 0.3s ease;
+  }
+  
+  label {
+    display: block;
+    margin-top: 10px;
+    font-weight: bold;
+    color: #5e3b2b;
+  }
+  
+  input[type="text"],
+  input[type="number"],
+  select {
+    width: 100%;
+    padding: 10px;
+    margin-top: 6px;
+    border: none;
+    border-radius: 8px;
+    background-color: #f7ebe6;
+    color: #4b3621;
+    font-size: 14px;
+  }
+  
+  input::placeholder {
+    color: #a18674;
+  }
+  
+  button {
+    margin-top: 20px;
+    padding: 12px 18px;
+    background: linear-gradient(to right, #c58b68, #a96e56);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background 0.3s, transform 0.3s ease;
+  }
+  
+  button:hover {
+    background: linear-gradient(to right, #a96e56, #845544);
+    transform: scale(1.05);
+  }
+  
+  .acciones button {
+    background: linear-gradient(to right, #a96e56, #845544);
+    margin-right: 6px;
+    transition: transform 0.2s ease;
+  }
+  
+  .acciones .eliminar {
+    background: linear-gradient(to right, #d36b5a, #a94a3c);
+  }
+  
+  .acciones button:hover {
+    opacity: 0.9;
+    transform: scale(1.05);
+  }
+  
+  /* Fondo opcional desenfocado como en login */
+  .fondo {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-image: url('logo.png');
+    background-size: cover;
+    background-position: center;
+    filter: blur(8px) brightness(0.6);
+    z-index: -1;
+  }
+  
+  /* Responsive */
+  @media (max-width: 768px) {
+    form {
+      padding: 15px;
+      margin: 20px 10px;
+    }
+  
+    input[type="text"],
+    input[type="number"],
+    select {
+      font-size: 16px;
+    }
+  
+    button {
+      padding: 14px;
+    }
+  }
+  
+  @media (max-width: 480px) {
+    input[type="text"],
+    input[type="number"],
+    select {
+      padding: 12px;
+    }
+  
+    button {
+      padding: 12px;
+      font-size: 15px;
+    }
+  
+    table th, table td {
+      font-size: 14px;
+      padding: 8px;
+    }
+  }
+  
+  /* Botón Agregar visible y animado */
+  .btn-agregar {
+    background-color: #fca311;
+    color: white;
+    border-radius: 8px;
+    padding: 10px 15px;
+    font-weight: bold;
+    cursor: pointer;
+    border: none;
+    transition: background-color 0.3s ease, transform 0.3s ease;
+    margin: 10px 0;
+  }
+  
+  .btn-agregar:hover {
+    background-color: #e59400;
+    transform: scale(1.1);
+  }
+  
+  /* Contenedor formulario oculto inicialmente */
+  #formulario-contenedor {
+    display: none;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    margin-top: 20px;
+    background: rgba(231, 211, 198, 0.25);
+    padding: 20px;
+    border-radius: 16px;
+    box-shadow: 0 4px 16px rgba(50, 30, 10, 0.15);
+    backdrop-filter: blur(10px);
+  }
+  
+  /* Formulario de ajuste (sumar/restar) */
+  #modificar-form {
+    margin-top: 25px;
+    background: #f7ebe6;
+    padding: 15px;
+    border-radius: 10px;
+    box-shadow: 0 0 8px rgba(50,30,10,0.1);
+    display: none;
+  }
+  
+  #modificar-form label {
+    font-weight: bold;
+    color: #5e3b2b;
+  }
+  
+  #modificar-form input[type=number] {
+    width: 80px;
+    padding: 6px;
+    margin-left: 10px;
+    border-radius: 6px;
+    border: 1px solid #d5bba6;
+  }
+  #modificar-form button {
+    margin-left: 10px;
+    background: linear-gradient(to right, #c58b68, #a96e56);
+    color: white;
+    border: none;
+    padding: 6px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: bold;
+  }
+  #modificar-form button:hover {
+    background: linear-gradient(to right, #a96e56, #845544);
+  }
+  
+  /* Contenedor para el botón agregar en cada sección */
+  .seccion-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  /* Menú del engrane */
+  .menu-secciones {
+    position: absolute;
+    top: 60px;
+    right: 30px;
+    background: #fff4ec;
+    border: 1px solid #cfa68d;
+    border-radius: 10px;
+    padding: 15px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    z-index: 100;
+    width: 240px;
+  }
+  
+  .menu-secciones .menu-opciones button,
+  .menu-secciones .submenu button {
+    width: 100%;
+    margin-top: 8px;
+    padding: 10px;
+    font-weight: bold;
+    border-radius: 6px;
+    border: none;
+    background: linear-gradient(to right, #c58b68, #a96e56);
+    color: white;
+    cursor: pointer;
+  }
+  
+  .menu-secciones .submenu {
+    margin-top: 10px;
+  }
+  
+  .menu-secciones input[type="text"] {
+    width: 100%;
+    padding: 8px;
+    margin-top: 6px;
+    border-radius: 6px;
+    border: 1px solid #d5bba6;
+    background: #fff7f0;
+    color: #4b3621;
+  }
+  
+  #lista-secciones label {
+    display: block;
+    margin: 5px 0;
+    color: #5c4033;
+  }
+  #selector-seccion {
+    margin: 0 auto 28px;      
+    display: flex;            
+    justify-content: center;  
+    gap: 15px;                
+    flex-wrap: wrap;          
+    max-width: 600px;         
+    padding: 0 10px;          
+  }
