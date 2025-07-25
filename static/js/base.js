@@ -13,10 +13,13 @@ btn.addEventListener("click", function() {
     }
 });
 
-window.onclick = function(event) {
+window.addEventListener("click", function(event) {
+    const btn = document.getElementById("menu-button");
+    const nav = document.querySelector(".nav__menu");
+    
     if (!btn.contains(event.target)) {
         btn.classList.remove("menu-active");
         btn.classList.add("menu-not-active");
         nav.classList.remove("active");
     }
-}
+});

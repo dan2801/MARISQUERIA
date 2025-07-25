@@ -37,7 +37,7 @@
                                     <!-- Ventana modal para editar items -->
                                     <div id="modal_edit{{ product.id }}" class="modal">
                                         <div class="modal-content">
-                                            <span class="close" onclick="closeModalEdit({{ product.id }})">&times;</span>
+                                            <span class="close" onclick="closeModalEdit({{ product.id }}); event.stopPropagation();">&times;</span>
                                             <h2>Editar producto</h2>
 
                                             <form action="{{ url_for('edit', id=product.id) }}" method="POST" enctype="multipart/form-data">

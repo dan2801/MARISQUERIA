@@ -1,10 +1,6 @@
 {% extends 'base.html' %}
 
 {% block content %}
-    <div class="buttons_container">
-        <button class="new-product-btn" title="Cerrar sesión" onclick="logout()">Cerrar sesión</button>
-    </div>
-
     {% for categoria, productos in cat.items() %}
         <div class="categoria">
             <details onclick="toggleCategoria('{{ categoria|replace(' ', '_') }}')" style="cursor:pointer;">
@@ -28,40 +24,62 @@
                             <div class="right-side_container">
                                 <p class="price">MXN ${{ product.price }}</p>
                                 <div class="btn_container">
-                                    <button type="submit">
+                                    <button type="submit" class="btn">
                                         +
                                     </button>
 
                                     <!-- Ventana modal para editar items -->
                                     <div id="modal_product{{ product.id }}" class="modal">
-                                        <div class="modal-content">
-                                            <span class="close" onclick="closeModalProduct({{ product.id }})">&times;</span>
-                                            <h2>Editar producto</h2>
+                                        <div class="modal-content modal-content-user">
+                                            <div class="modal-body">
+                                                <div class="modal-image_container" style="background-image: url('{{ url_for('static', filename='uploads/' + product.image) }}');">
+                                                    <span class="close close-user" onclick="closeModalProduct({{ product.id }}); event.stopPropagation();">x</span>
+                                                </div>
+                                                <div class="modal-text_container">
+                                                    <div class="products-data">
+                                                        <h2 class="product-name">{{ product.name }}</h2>
+                                                        <p>{{ product.description }}</p>
+                                                        <p class="price">MXN ${{ product.price }}</p>
+                                                    </div>
 
-                                            <form action="{{ url_for('edit', id=product.id) }}" method="POST" enctype="multipart/form-data">
-                                                <label for="name">Nombre:</label>
-                                                <input type="text" name="name" id="name" value="{{ product.name }}" required>
-
-                                                <label for="categoria">Categoria:</label>
-                                                <select name="categoria" id="categoria" required>
-                                                    {% for categoria in categoriaslist %}
-                                                        <option value="{{ categoria.id }}">{{ categoria.name }}</option>
-                                                    {% endfor %}
-                                                </select>
-
-                                                <label for="price">Precio:</label>
-                                                <input type="number" name="price" id="price" value="{{ product.price }}" required>
-
-                                                <label for="description">Descripción:</label>
-                                                <textarea name="description" id="description" required rows="1">{{ product.description }}</textarea>
-
-                                                <label for="image">Imagen:</label>
-                                                <input type="file" name="image" id="image" value="{{ product.image }}">
-
-                                                <button type="submit">Actualizar</button>
-                                            </form>
+                                                    <div class="buttons_user">
+                                                        <div class="quantity">
+                                                            <button id="decrease">-</button>
+                                                            <div>
+                                                                <span id="quantity">0</span>
+                                                            </div>
+                                                            <button id="increase">+</button>
+                                                        </div>
+                                                        <button type="submit" class="btn">
+                                                            Agregar MXN $<span id="total">0</span>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
+                                    <script>
+                                        let quantity = 0;
+                                        const unitPrice = {{ product.price }};
+
+                                        const quantityEl = document.getElementById('quantity');
+                                        const totalEl = document.getElementById('total');
+
+                                        document.getElementById('increase').addEventListener('click', () => {
+                                            quantity++;
+                                            updateUI();
+                                        })
+
+                                        document.getElementById('decrease').addEventListener('click', () => {
+                                            if (quantity > 0) quantity--;
+                                            updateUI();
+                                        })
+
+                                        function updateUI() {
+                                            quantityEl.textContent = quantity;
+                                            totalEl.textContent = quantity * unitPrice;
+                                        }
+                                    </script>
                                 </div>
                             </div>
                         </div>
@@ -91,15 +109,4 @@
             <p id="flash-message-text"></p>
         </div>
     </div>
-
-    <script>
-        function closeModalProduct(id) {
-            const modal = document.getElementById('modal_product' + id);
-            if (modal) {
-                modal.classList.remove('show');
-            }
-        }
-    </script>
-    <script src="{{ url_for('static', filename='js/index.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/index_user.js') }}"></script>
 {% endblock %}

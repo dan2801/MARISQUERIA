@@ -245,4 +245,8 @@ def delete(id):
 def inventario():
     if 'username' not in session:
         return redirect(url_for('login'))
-    return render_template('inventario.html')
+
+    if session['tipo_usuario'] == 'admin':
+        return render_template('inventario.html')
+    else:
+        return redirect(url_for('index'))

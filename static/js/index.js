@@ -39,13 +39,6 @@ function closeModal() {
     modal.classList.remove('show');
 }
 
-window.onclick = function(event) {
-    const modal = document.getElementById('modal');
-    if (event.target == modal) {
-        closeModal();
-    }
-}
-
 function openModalCategory() {
     const modal = document.getElementById('modal_category');
     modal.classList.add('show');
@@ -66,13 +59,6 @@ function closeModalDeleteCategory() {
     modal.classList.remove('show');
 }
 
-window.onclick = function(event) {
-    const modal = document.getElementById('modal_category');
-    if (event.target == modal) {
-        closeModalCategory();
-    }
-}
-
 function openModalEdit(productId) {
     const modal = document.getElementById('modal_edit' + productId);
     if (modal) {
@@ -87,13 +73,14 @@ function closeModalEdit(productId) {
     }
 }
 
-window.onclick = function(event) {
+window.addEventListener("click", function(event) {
     document.querySelectorAll('.modal').forEach(modal => {
         if (event.target === modal) {
             modal.classList.remove('show');
         }
     });
-}
+});
+
 
 function logout() {
     fetch('/logout', {

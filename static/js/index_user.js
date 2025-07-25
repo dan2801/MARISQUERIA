@@ -1,16 +1,17 @@
 function openModalProduct(id) {
     const modal = document.getElementById('modal_product' + id);
     if (modal) {
+        console.log("Antes: ", modal.className);
         modal.classList.add('show');
+        console.log("Después: ", modal.className);
     }
 }
 
-
-
-window.onclick = function(event) {
-    document.querySelectorAll('.modal').forEach(modal => {
-        if (event.target === modal) {
-            modal.classList.remove('show');
-        }
-    });
+function closeModalProduct(id) {
+    const modal = document.getElementById('modal_product' + id);
+    if (modal) {
+        console.log("Antes: ", modal.className);
+        modal.classList.remove('show');
+        console.log("Después: ", modal.className);
+    }
 }
