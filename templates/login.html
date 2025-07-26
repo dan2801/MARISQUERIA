@@ -6,6 +6,7 @@
     <title>Marisquería La Flor del Puerto</title>
     <link rel="icon" href="{{ url_for('static', filename='images/logo.png') }}" type="image/png">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/login.css') }}">
+    <script src="{{ url_for('static', filename='js/login.js') }}"></script>
 </head>
 <body>
     <div class="fondo"></div>
@@ -25,6 +26,24 @@
 
             <button type="submit">Iniciar Sesión</button>
         </form>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            <div id="flash-messages" style="display:none;">
+                {% for category, message in messages %}
+                    <div class="flash-message" data-category="{{ category }}">{{ message }}</div>
+                {% endfor %}
+            </div>
+        {% endif %}
+    {% endwith %}
+
+    <!-- Modal de alerta -->
+    <div id="modal-flash" class="modal modal-flash">
+        <div class="modal-content">
+            <span class="close" onclick="closeFlashModal()">&times;</span>
+            <p id="flash-message-text"></p>
+        </div>
     </div>
 </body>
 </html>

@@ -31,6 +31,8 @@ def index():
         return render_template('index.html', cat=cat, categoriaslist=categorias)
     elif rol == 'user':
         return render_template('index_user.html', cat=cat, categoriaslist=categorias)
+    elif rol == 'cajero':
+        return render_template('index_cajero.html', cat=cat, categoriaslist=categorias)
     else:
         return redirect(url_for('login'))
 

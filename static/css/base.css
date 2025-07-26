@@ -303,8 +303,6 @@ details > summary {
     transition: 0.3s;
 }
 
-
-
 .image_container {
     flex: 0 0 112px;
     height: 112px;
@@ -372,10 +370,24 @@ img {
     background-color: rgba(0, 0, 0, 0.6);
 }
 
+.modal-delivery {
+    display: none;
+    position: fixed;
+    z-index: -1;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+}
+
 .modal-flash {
     display: none;
     z-index: 20;
     background-color: rgba(0, 0, 0, 0.7);
+}
+
+.modal-delivery.show {
+    display: block;
 }
 
 .modal-flash.show {
@@ -398,6 +410,16 @@ h4 {
     width: 95%;
     max-width: 500px;
     border-radius: 12px;
+    position: relative;
+}
+
+.modal-content-delivery {
+    background-color: #f5f5f5;
+    padding: 20px;
+    width: 100%;
+    position: fixed;
+    bottom: 0;
+    box-shadow: rgba(0, 0, 0, 0.3) 0px 2px 10px 0px;
 }
 
 .modal-content-user {
@@ -411,10 +433,14 @@ h4 {
 }
 
 .close {
+    background-color: rgba(75, 54, 33, 0.36);
+    color: #fff6;
     float: right;
     font-size: 18px;
     font-weight: bold;
     cursor: pointer;
+    border-radius: 16px;
+    padding: 5px 10px;
 }
 
 .close-user {
@@ -606,6 +632,7 @@ tr:nth-child(odd) {
     justify-content: center;
     align-items: center;
     width: 40%;
+    background-color: #f5f5f5;
 }
 
 .quantity button {
@@ -679,9 +706,16 @@ tr:nth-child(odd) {
         height: 450px;
     }
 
+    .close {
+        position: absolute;
+        top: 3%;
+        right: 2%;
+    }
+
     .close-user {
         position: absolute;
-        top: 14%;
-        right: 10%;
+        top: 1%;
+        right: 1%;
+        margin: 0;
     }
 }

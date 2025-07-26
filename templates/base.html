@@ -15,7 +15,7 @@
 <body>
     <header>
         <nav class="nav__menu not-active">
-            <a href="#" class="nav-link">Home</a>
+            <a href="{{ url_for('index') }}" class="nav-link">Home</a>
             {% if session.get('tipo_usuario') == 'admin' %}
                 <a href="{{ url_for('inventario') }}" class="nav-link">Inventario</a>
                 <a href="{{ url_for('admin') }}" class="nav-link">Administrar Usuarios</a>
@@ -34,6 +34,24 @@
     <div class="container">
         <h1>MARISQUERÍA LA FLOR DEL PUERTO</h1>
         {% block content %}{% endblock %}
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            <div id="flash-messages" style="display:none;">
+                {% for category, message in messages %}
+                    <div class="flash-message" data-category="{{ category }}">{{ message }}</div>
+                {% endfor %}
+            </div>
+        {% endif %}
+    {% endwith %}
+
+    <!-- Modal de alerta -->
+    <div id="modal-flash" class="modal modal-flash">
+        <div class="modal-content">
+            <span class="close" onclick="closeFlashModal()">&times;</span>
+            <p id="flash-message-text"></p>
+        </div>
     </div>
 </body>
 </html>

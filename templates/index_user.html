@@ -1,6 +1,17 @@
 {% extends 'base.html' %}
 
 {% block content %}
+    <!-- Modal del pedido -->
+    <div id="pedidoModal" class="modal-delivery">
+        <div class="modal-content-delivery">
+            <span class="close" onclick="closePedidoModal()">&times;</span>
+            <h2>Tu pedido</h2>
+            <div id="pedidoLista"></div>
+            <p>Total: MXN $<span id="pedidoTotal">0</span></p>
+            <button onclick="enviarPedido()" class="btn">Enviar pedido</button>
+        </div>
+    </div>
+
     {% for categoria, productos in cat.items() %}
         <div class="categoria">
             <details onclick="toggleCategoria('{{ categoria|replace(' ', '_') }}')" style="cursor:pointer;">
@@ -9,7 +20,7 @@
 
             <div id="{{ categoria|replace(' ', '_') }}" class="productos" style="display: none;">
                 {% for product in productos %}
-                    <div class="product" onclick="openModalProduct({{ product.id }})">
+                    <div class="product">
                         <div class="image_container">
                         {% if product.image %}
                             <img src="{{ url_for('static', filename='uploads/' + product.image) }}" alt="{{ product.name }}">
@@ -23,47 +34,31 @@
                             </div>
                             <div class="right-side_container">
                                 <p class="price">MXN ${{ product.price }}</p>
+                                {% if session['tipo_usuario'] == 'user' %}
                                 <div class="btn_container">
-                                    <button type="submit" class="btn">
-                                        +
-                                    </button>
-
-                                    <!-- Ventana modal para editar items -->
-                                    <div id="modal_product{{ product.id }}" class="modal">
-                                        <div class="modal-content modal-content-user">
-                                            <div class="modal-body">
-                                                <div class="modal-image_container" style="background-image: url('{{ url_for('static', filename='uploads/' + product.image) }}');">
-                                                    <span class="close close-user" onclick="closeModalProduct({{ product.id }}); event.stopPropagation();">x</span>
-                                                </div>
-                                                <div class="modal-text_container">
-                                                    <div class="products-data">
-                                                        <h2 class="product-name">{{ product.name }}</h2>
-                                                        <p>{{ product.description }}</p>
-                                                        <p class="price">MXN ${{ product.price }}</p>
-                                                    </div>
-
-                                                    <div class="buttons_user">
-                                                        <div class="quantity">
-                                                            <button id="decrease">-</button>
-                                                            <div>
-                                                                <span id="quantity">0</span>
-                                                            </div>
-                                                            <button id="increase">+</button>
-                                                        </div>
-                                                        <button type="submit" class="btn">
-                                                            Agregar MXN $<span id="total">0</span>
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            </div>
+                                    <div class="quantity">
+                                        <button id="decrease" onclick="eliminarAlPedido({
+                                            id: '{{ product.id}}',
+                                            nombre: '{{ product.name }}',
+                                            precio: '{{ product.price}}',
+                                            cantidad: 1,
+                                        })">-</button>
+                                        <div>
+                                            <span id="quantity">0</span>
                                         </div>
+                                        <button id="increase" onclick="openPedidoModal(); agregarAlPedido({
+                                            id: '{{ product.id}}',
+                                            nombre: '{{ product.name }}',
+                                            precio: '{{ product.price}}',
+                                            cantidad: 1,
+                                        })">+</button>
                                     </div>
+
                                     <script>
                                         let quantity = 0;
                                         const unitPrice = {{ product.price }};
 
                                         const quantityEl = document.getElementById('quantity');
-                                        const totalEl = document.getElementById('total');
 
                                         document.getElementById('increase').addEventListener('click', () => {
                                             quantity++;
@@ -77,10 +72,80 @@
 
                                         function updateUI() {
                                             quantityEl.textContent = quantity;
-                                            totalEl.textContent = quantity * unitPrice;
+                                        }
+                                    </script>
+                                    <script>
+                                        let pedido = [];
+                                        
+                                        function agregarAlPedido(producto) {
+                                            console.log(producto);
+                                            const existente = pedido.find(p => p.id === producto.id);
+                                            if (existente) {
+                                                existente.cantidad += producto.cantidad;
+                                            } else {
+                                                pedido.push(producto);
+                                            }
+                                            actualizarResumenPedido();
+                                        }
+
+                                        function eliminarAlPedido(producto) {
+                                            const existente = pedido.find(p => p.id === producto.id);
+                                            if (existente) {
+                                                existente.cantidad -= producto.cantidad;
+                                                if (existente.cantidad == 0) {
+                                                    closePedidoModal();
+                                                    return;
+                                                };
+                                            } else {
+                                                pedido.push(producto);
+                                            }
+                                            actualizarResumenPedido();
+                                        }
+                                        
+                                        function actualizarResumenPedido() {
+                                            const lista = document.getElementById('pedidoLista');
+                                            const totalSpan = document.getElementById('pedidoTotal');
+                                            lista.innerHTML = '';
+                                        
+                                            let total = 0;
+                                            pedido.forEach(p => {
+                                                const item = document.createElement('div');
+                                                if (p.cantidad == 0) return;
+                                                item.innerHTML = `${p.nombre} x${p.cantidad} - MXN $${p.cantidad * p.precio}`;
+                                                lista.appendChild(item);
+                                                total += p.cantidad * p.precio;
+                                            });
+                                        
+                                            totalSpan.textContent = total.toFixed(2);
+                                        }
+                                        
+                                        function openPedidoModal() {
+                                            document.getElementById('pedidoModal').classList.add('show');
+                                        }
+                                        
+                                        function closePedidoModal() {
+                                            document.getElementById('pedidoModal').classList.remove('show');
+                                        }
+                                        
+                                        function enviarPedido() {
+                                            fetch('/enviar_pedido', {
+                                                method: 'POST',
+                                                headers: { 'Content-Type': 'application/json' },
+                                                body: JSON.stringify({ pedido })
+                                            }).then(res => {
+                                                if (res.ok) {
+                                                    alert("Pedido enviado correctamente");
+                                                    pedido = [];
+                                                    actualizarResumenPedido();
+                                                    closePedidoModal();
+                                                } else {
+                                                    alert("Error al enviar pedido");
+                                                }
+                                            });
                                         }
                                     </script>
                                 </div>
+                                {% endif %}
                             </div>
                         </div>
                     </div>
@@ -91,22 +156,4 @@
     {% if cat|length == 0 %}
         <div>No hay productos aún.</div>
     {% endif %}
-    
-    {% with messages = get_flashed_messages(with_categories=true) %}
-        {% if messages %}
-            <div id="flash-messages" style="display:none;">
-                {% for category, message in messages %}
-                    <div class="flash-message" data-category="{{ category }}">{{ message }}</div>
-                {% endfor %}
-            </div>
-        {% endif %}
-    {% endwith %}
-
-    <!-- Modal de alerta -->
-    <div id="modal-flash" class="modal modal-flash">
-        <div class="modal-content">
-            <span class="close" onclick="closeFlashModal()">&times;</span>
-            <p id="flash-message-text"></p>
-        </div>
-    </div>
 {% endblock %}

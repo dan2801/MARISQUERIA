@@ -60,7 +60,7 @@
                                                 <label for="image">Imagen:</label>
                                                 <input type="file" name="image" value="{{ product.image }}">
 
-                                                <button type="submit">Actualizar</button>
+                                                <button type="submit" class="btn">Actualizar</button>
                                             </form>
                                         </div>
                                     </div>
@@ -153,22 +153,6 @@
         </div>
     </div>
 
-    {% with messages = get_flashed_messages(with_categories=true) %}
-        {% if messages %}
-            <div id="flash-messages" style="display:none;">
-                {% for category, message in messages %}
-                    <div class="flash-message" data-category="{{ category }}">{{ message }}</div>
-                {% endfor %}
-            </div>
-        {% endif %}
-    {% endwith %}
-
-    <!-- Modal de alerta -->
-    <div id="modal-flash" class="modal modal-flash">
-        <div class="modal-content">
-            <span class="close" onclick="closeFlashModal()">&times;</span>
-            <p id="flash-message-text"></p>
-        </div>
-    </div>
+    
 
 {% endblock %}

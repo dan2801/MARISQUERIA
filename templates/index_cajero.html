@@ -1,0 +1,39 @@
+{% extends 'base.html' %}
+
+{% block content %}
+    {% for categoria, productos in cat.items() %}
+        <div class="categoria">
+            <details onclick="toggleCategoria('{{ categoria|replace(' ', '_') }}')" style="cursor:pointer;">
+                <summary>{{ categoria }}</summary>
+            </details>
+
+            <div id="{{ categoria|replace(' ', '_') }}" class="productos" style="display: none;">
+                {% for product in productos %}
+                    <div class="product" onclick="openModalProduct({{ product.id }})">
+                        <div class="image_container">
+                        {% if product.image %}
+                            <img src="{{ url_for('static', filename='uploads/' + product.image) }}" alt="{{ product.name }}">
+                        {% endif %}
+                        </div>
+
+                        <div class="text_container">
+                            <div class="left-side_container">
+                                <h3>{{ product.name }}</h3>
+                                <p>{{ product.description }}</p>
+                            </div>
+                            <div class="right-side_container">
+                                <p class="price">MXN ${{ product.price }}</p>
+                                <div class="btn_container">
+                                    <button class="btn">Print</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+        </div>
+    {% endfor %}
+
+    {% if cat|length == 0 %}
+        <div>No hay productos aún.</div>
+    {% endif %}
+{% endblock %}
