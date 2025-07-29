@@ -1,4 +1,4 @@
-Para crear el entorno virtual, debes colocar lo siguiente:
+# Para crear el entorno virtual, debes colocar lo siguiente:
 
  python3 -m venv .venv
 
@@ -6,4 +6,4 @@ Para crear el entorno virtual, debes colocar lo siguiente:
 
  pip install -r requirements.txt
 
-El archivo requirements.txt debes descargarlo desde este repositorio
+# El archivo requirements.txt debes descargarlo desde este repositorio
