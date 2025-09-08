@@ -1,39 +1,82 @@
 {% extends 'base.html' %}
 
 {% block content %}
-    {% for categoria, productos in cat.items() %}
-        <div class="categoria">
-            <details onclick="toggleCategoria('{{ categoria|replace(' ', '_') }}')" style="cursor:pointer;">
-                <summary>{{ categoria }}</summary>
-            </details>
+    <div class="productos" style="margin-top: 26px;">
+        {% for usuario in usuarios %}
+            {% if usuario.rol == "user" and usuario.pedidos|length > 0 %}
+                <details>
+                    <summary style="cursor: pointer;">Pedidos de {{ usuario.username }}</summary>
+                    <div class="product" style="flex-direction: column; padding-left: 16px;">
+                    {% for pedido in usuario.pedidos %}
+                            <div class="text_container">
+                                <details style="margin-bottom: 12px;">
+                                    <summary style="font-size: 16px; padding-top: 0px; cursor: pointer;">Pedido #{{ pedido.id }} - {{ pedido.fecha.strftime('%d/%m/%Y %H:%M') }}</summary>
+                                    <p style="white-space: pre-line; text-wrap: pretty; padding-bottom: 12px;">{{ pedido.name }}</p>
+                                    <div style="display: flex; flex-direction: column; justify-content: space-between; align-items: center;">
+                                        <p><strong>Total: ${{ pedido.total }}</strong> - Estado: {{ pedido.state }}</p>
+                                        <div>
+                                            <button class="btn" onclick="guardar_historico({{ pedido.id }})">Cerrar pedido</button>
+                                            <button class="btn" onclick="ticket({{ pedido.id }})">
+                                                <img src="{{ url_for('static', filename='images/print-svgrepo-com.svg') }}" alt="Imprimir" width="20" height="20" style="filter: invert(100%);">
+                                            </button>
+                                        </div>
+                                    </div>
+                                </details>
 
-            <div id="{{ categoria|replace(' ', '_') }}" class="productos" style="display: none;">
-                {% for product in productos %}
-                    <div class="product" onclick="openModalProduct({{ product.id }})">
-                        <div class="image_container">
-                        {% if product.image %}
-                            <img src="{{ url_for('static', filename='uploads/' + product.image) }}" alt="{{ product.name }}">
-                        {% endif %}
-                        </div>
+                                <script>
+                                    function ticket(pedido_id) {
+                                        window.open(`/ticket/${pedido_id}`, '_blank', 'width=400,height=600');
+                                    }
 
-                        <div class="text_container">
-                            <div class="left-side_container">
-                                <h3>{{ product.name }}</h3>
-                                <p>{{ product.description }}</p>
+                                    function guardar_historico(pedido_id) {
+                                        fetch('/guardar_historico', {
+                                            method: 'POST',
+                                            headers: {
+                                                'Content-Type': 'application/json'
+                                            },
+                                            body: JSON.stringify({ pedido_id: pedido_id})
+                                        })
+                                        .then(response => response.json())
+                                        .then(data => {
+                                            if (data.success) {
+                                                console.log("Pedido guardado como histórico");
+
+                                                // 2. Eliminar el pedido del backend
+                                                fetch(`/delete_pedido/${pedido_id}`, {
+                                                    method: 'POST'
+                                                })
+                                                .then(res => res.json())
+                                                .then(data => {
+                                                    if (data.success) {
+                                                        console.log(`Pedido ${pedido_id} eliminado`);
+                                                        location.reload();
+                                                    }
+                                                });
+                                            } else {
+                                                console.error(data.message);
+                                            }
+                                        })
+                                    }
+
+                                    // Escuchar el evento para eliminar el pedido del DOM en tiempo real
+                                    socket.on('pedido_eliminado', function(data) {
+                                        const pedidoElement = document.getElementById(`pedido-${data.id}`);
+                                        if (pedidoElement) {
+                                            pedidoElement.remove();
+                                        }
+                                    });
+                                </script>
                             </div>
-                            <div class="right-side_container">
-                                <p class="price">MXN ${{ product.price }}</p>
-                                <div class="btn_container">
-                                    <button class="btn">Print</button>
-                                </div>
-                            </div>
-                        </div>
+                    {% endfor %}
                     </div>
-                {% endfor %}
-        </div>
-    {% endfor %}
+            {% endif %}
+        {% endfor %}
+    </div>
 
-    {% if cat|length == 0 %}
-        <div>No hay productos aún.</div>
+    
+    {% if pedidos|length == 0 %}
+        <div style="text-align: center; margin: 15% auto; min-height: 10dvh;">
+            No hay pedidos aún.
+        </div>
     {% endif %}
 {% endblock %}

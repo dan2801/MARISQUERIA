@@ -1,0 +1,28 @@
+{% extends 'base.html' %}
+
+{% block content %}
+    <h2 style="text-align: center;">Reportes históricos</h2>
+    <div style="width: 90%; margin: 0 auto;">
+        <table style="width: 100%;">
+            <tr>
+                <th>#</th>
+                <th>Productos</th>
+                <th>Fecha</th>
+                <th>Total</th>
+            </tr>
+            {% for reporte in reportes %}
+                <tr>
+                    <td>{{ reporte.id }}</td>
+                    <td style="border-top: 1px dashed #000;">{{ reporte.productos }}</td>
+                    <td style="text-align: right; border-top: 1px dashed #000;">{{ reporte.fecha }}</td>
+                    <td>${{ reporte.total }}0</td>
+                </tr>
+            {% endfor %}
+        </table>
+    </div>
+    
+
+    {% if reportes|length == 0 %}
+        <div>No hay reportes aún.</div>
+    {% endif %}
+{% endblock %}

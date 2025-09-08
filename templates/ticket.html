@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Ticket</title>
+    <style>
+        body {
+            font-family: monospace;
+            width: 290px;
+        }
+        h2, h3 {
+            text-align: center;
+            margin: 0;
+        }
+        table {
+            width: 100%;
+        }
+        td {
+            padding: 2px 0;
+        }
+        .total {
+            font-weight: bold;
+            border-top: 1px dashed #000;
+        }
+    </style>
+</head>
+<body>
+    <h2>MARISQUERIA LA FLOR DEL PUERTO</h2>
+    <h3>Ticket #{{ pedido.id }}</h3>
+    <p>Fecha: {{ pedido.fecha.strftime('%d/%m/%Y %H:%M') }}</p>
+
+    <table>
+        <tr>
+            <td style="white-space: pre-line;">{{ pedido.name }}</td>
+        </tr>
+        <tr class="total">
+            <td>Total</td>
+            <td style="text-align:right;">{{ pedido.total }}</td>
+        </tr>
+    </table>
+
+    <script>
+        window.print(); // Imprime automáticamente al abrir
+    </script>
+</body>
+</html>

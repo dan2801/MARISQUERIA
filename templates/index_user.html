@@ -4,16 +4,33 @@
     <!-- Modal del pedido -->
     <div id="pedidoModal" class="modal-delivery">
         <div class="modal-content-delivery">
-            <span class="close" onclick="closePedidoModal()">&times;</span>
-            <h2>Tu pedido</h2>
-            <div id="pedidoLista"></div>
-            <p>Total: MXN $<span id="pedidoTotal">0</span></p>
-            <button onclick="enviarPedido()" class="btn">Enviar pedido</button>
+            <span class="close" onclick="closePedidoModal()">V</span>
+            <div>
+                <h2>Tu pedido</h2>
+                <div id="pedidoLista"></div>
+                <p>Total: MXN $<span id="pedidoTotal">0</span></p>
+            </div>
+            <button onclick="enviarPedido()" class="btn" style="margin-right: 45px;">Enviar pedido</button>
+
+            <script>
+                const socket = io()
+
+                function enviarPedido() {
+                    const items = document.querySelectorAll('#pedidoLista li');
+                    const productos = Array.from(items).map(li => li.textContent.trim());
+                    const nombre = productos.join('\n');
+                    const total = document.getElementById('pedidoTotal').textContent;
+                    console.log('nombreeeeee:: ', nombre);
+                    socket.emit('nuevo_pedido', { name: nombre, total: total, state: 'pendiente'});
+                    document.getElementById('pedidoModal').style.display = 'none';
+                }
+            </script>
         </div>
     </div>
 
-    {% for categoria, productos in cat.items() %}
-        <div class="categoria">
+    
+        <div class="categorias">
+            {% for categoria, productos in cat.items() %}
             <details onclick="toggleCategoria('{{ categoria|replace(' ', '_') }}')" style="cursor:pointer;">
                 <summary>{{ categoria }}</summary>
             </details>
@@ -23,7 +40,7 @@
                     <div class="product">
                         <div class="image_container">
                         {% if product.image %}
-                            <img src="{{ url_for('static', filename='uploads/' + product.image) }}" alt="{{ product.name }}">
+                            <img src="{{ url_for('static', filename='uploads/' + product.image) }}" alt="{{ product.name }}" loading="lazy">
                         {% endif %}
                         </div>
 
@@ -31,6 +48,23 @@
                             <div class="left-side_container">
                                 <h3>{{ product.name }}</h3>
                                 <p>{{ product.description }}</p>
+                                    {% for variant in product.variants %}
+                                        <p>
+                                            {{ variant.size }} - <strong>MXN ${{ variant.price }}</strong>
+                                            <button onclick="eliminarAlPedido({
+                                                id: '{{ product.id }}_{{ variant.id }}',
+                                                nombre: '{{ product.name }} {{ variant.size }}',
+                                                precio: '{{ variant.price }}',
+                                                cantidad: 1
+                                            })">-</button>
+                                            <button id="increase" onclick="openPedidoModal(); agregarAlPedido({
+                                                id: '{{ product.id}}_{{variant.id}}',
+                                                nombre: '{{ product.name }} {{ variant.size }}',
+                                                precio: '{{ variant.price }}',
+                                                cantidad: 1,
+                                            })">+</button>
+                                        </p>
+                                    {% endfor %}
                             </div>
                             <div class="right-side_container">
                                 <p class="price">MXN ${{ product.price }}</p>
@@ -109,9 +143,9 @@
                                         
                                             let total = 0;
                                             pedido.forEach(p => {
-                                                const item = document.createElement('div');
+                                                const item = document.createElement('li');
                                                 if (p.cantidad == 0) return;
-                                                item.innerHTML = `${p.nombre} x${p.cantidad} - MXN $${p.cantidad * p.precio}`;
+                                                item.innerHTML = `${p.nombre} x${p.cantidad} - MXN $${p.cantidad * p.precio}<br>`;
                                                 lista.appendChild(item);
                                                 total += p.cantidad * p.precio;
                                             });
@@ -127,7 +161,7 @@
                                             document.getElementById('pedidoModal').classList.remove('show');
                                         }
                                         
-                                        function enviarPedido() {
+                                        function enviarPedido222() {
                                             fetch('/enviar_pedido', {
                                                 method: 'POST',
                                                 headers: { 'Content-Type': 'application/json' },

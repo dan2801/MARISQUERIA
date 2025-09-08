@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CRUD PRODUCTS</title>
+    <title>{% block title %}Marisquería La Flor del Puerto{% endblock %}</title>
     <link rel="icon" href="{{ url_for('static', filename='images/logo.png') }}" type="image/png">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -11,6 +11,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,100..900;1,100..900&family=Outfit:wght@100..900&family=Press+Start+2P&family=Roboto:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
     <script src="{{ url_for('static', filename='js/index.js') }}"></script>
     <script src="{{ url_for('static', filename='js/index_user.js') }}"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.8.1/socket.io.js" integrity="sha512-8BHxHDLsOHx+flIrQ0DrZcea7MkHqRU5GbTHmbdzMRnAaoCIkZ97PqZcXJkKZckMMhqfoeaJE+DNUVuyoQsO3Q==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 </head>
 <body>
     <header>
@@ -19,6 +20,7 @@
             {% if session.get('tipo_usuario') == 'admin' %}
                 <a href="{{ url_for('inventario') }}" class="nav-link">Inventario</a>
                 <a href="{{ url_for('admin') }}" class="nav-link">Administrar Usuarios</a>
+                <a href="{{ url_for('reportes') }}" class="nav-link">Reportes históricos</a>
             {% endif %}
             <button onclick="logout()" class="nav-link">Cerrar Sesión</button>
         </nav>
@@ -32,7 +34,7 @@
 
     <script src="{{ url_for('static', filename='js/base.js') }}"></script>
     <div class="container">
-        <h1>MARISQUERÍA LA FLOR DEL PUERTO</h1>
+        <h1 style="position: sticky; top: 0;">MARISQUERÍA LA FLOR DEL PUERTO</h1>
         {% block content %}{% endblock %}
     </div>
 
