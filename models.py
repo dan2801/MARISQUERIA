@@ -43,6 +43,7 @@ class Pedidos(db.Model):
     name = db.Column(db.String(100))
     state = db.Column(db.String(20), default='pendiente')
     fecha = db.Column(db.DateTime, default=datetime.now())
+    products = db.Column(db.JSON)
     total = db.Column(db.Float)
     usuario_id = db.Column(db.String(80), db.ForeignKey('users.username'), nullable=False)
 

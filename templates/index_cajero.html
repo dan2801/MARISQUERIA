@@ -11,7 +11,9 @@
                             <div class="text_container">
                                 <details style="margin-bottom: 12px;">
                                     <summary style="font-size: 16px; padding-top: 0px; cursor: pointer;">Pedido #{{ pedido.id }} - {{ pedido.fecha.strftime('%d/%m/%Y %H:%M') }}</summary>
-                                    <p style="white-space: pre-line; text-wrap: pretty; padding-bottom: 12px;">{{ pedido.name }}</p>
+                                    {% for producto in pedido.products %}
+                                        <p style="white-space: pre-line; text-wrap: pretty; padding-bottom: 12px;">x{{ producto.cantidad }} - {{ producto.nombre }} - ${{ producto.precio }}MXN</p>
+                                    {% endfor %}
                                     <div style="display: flex; flex-direction: column; justify-content: space-between; align-items: center;">
                                         <p><strong>Total: ${{ pedido.total }}</strong> - Estado: {{ pedido.state }}</p>
                                         <div>
