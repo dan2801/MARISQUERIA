@@ -4,15 +4,88 @@
 <!-- Modal del pedido -->
 <div id="pedidoModal" class="modal-delivery">
     <div class="modal-content-delivery">
-        <span class="close" onclick="closePedidoModal()">V</span>
+        <button class="close-panel" onclick="closePedidoModal()">✕</button>
         <div>
             <h2>Tu pedido</h2>
             <div id="pedidoLista"></div>
             <p>Total: MXN $<span id="pedidoTotal">0</span></p>
         </div>
-        <button onclick="enviarPedido()" class="btn btn-send">Enviar pedido</button>
+        <button onclick="enviarPedido()" class="btn btn-send">Crear Ticket</button>
     </div>
 </div>
+
+<!-- Modal para agregar producto a pedido existente -->
+<div id="agregarProductoModal" class="modal-delivery" style="display: none;">
+    <div class="modal-content-delivery">
+        <button class="close-panel" onclick="closeAgregarProductoModal()">✕</button>
+        <div>
+            <h2>Agregar Producto al Pedido</h2>
+            <form id="agregarProductoForm">
+                <input type="hidden" id="pedidoIdAgregar">
+                <div style="margin-bottom: 10px;">
+                    <label for="productoSelect">Producto:</label>
+                    <select id="productoSelect" name="producto_id" required style="width: 100%; padding: 8px;">
+                        {% for categoria, productos in cat.items() %}
+                            <optgroup label="{{ categoria }}">
+                                {% for product in productos %}
+                                    <option value="{{ product.id }}">{{ product.name }} - ${{ product.price }}</option>
+                                {% endfor %}
+                            </optgroup>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div style="margin-bottom: 10px;">
+                    <label for="cantidadAgregar">Cantidad:</label>
+                    <input type="number" id="cantidadAgregar" name="cantidad" value="1" min="1" required style="width: 100%; padding: 8px;">
+                </div>
+                <button type="submit" class="btn btn-send">Agregar</button>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Panel Lateral de Mesas Activas -->
+<div id="mesasActivasPanel" class="mesas-activas-panel">
+    <button class="close-panel" onclick="closeMesasActivasPanel()">✕</button>
+    <h2>🍽️ Mesas Activas</h2>
+    {% if pedidos_mesa %}
+        {% for pedido in pedidos_mesa %}
+        <div class="pedido-item">
+            <div class="pedido-header">
+                <div>
+                    <p><strong>Folio:</strong> {{ pedido.folio }}</p>
+                    <p><strong>Estado:</strong> {{ pedido.estado }}</p>
+                </div>
+                <p class="total">${{ pedido.total }}</p>
+            </div>
+            <div>
+                {% for producto in pedido.products %}
+                    <div class="producto-item">
+                        <span>x{{ producto.cantidad }} - {{ producto.nombre }} - ${{ producto.precio }}MXN</span>
+                        {% if pedido.estado == 'ABIERTA' %}
+                        <form action="{{ url_for('eliminar_producto_pedido', pedido_id=pedido.id) }}" method="POST">
+                            <input type="hidden" name="producto_id" value="{{ producto.id }}">
+                            <button type="submit" class="btn-panel">❌</button>
+                        </form>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+            </div>
+            {% if pedido.estado == 'ABIERTA' %}
+            <div class="pedido-actions">
+                <button onclick="openAgregarProductoModal({{ pedido.id }})" class="btn-panel">➕ Agregar Producto</button>
+                <form action="{{ url_for('enviar_caja', pedido_id=pedido.id) }}" method="POST">
+                    <button type="submit" class="btn-panel">📤 Enviar a Caja</button>
+                </form>
+            </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    {% else %}
+        <p class="no-mesas">No tienes mesas activas en este momento.</p>
+    {% endif %}
+</div>
+
 
 <div class="categorias">
     {% for categoria, productos in cat.items() %}
@@ -95,6 +168,109 @@
 <script>
     const socket = io();
     let pedido = [];
+    
+    // Escuchar evento de nuevo pedido creado para actualizar vista automáticamente
+    socket.on('nuevo_pedido_creado', function(data) {
+        if (data.usuario_id === '{{ session["username"] }}') {
+            location.reload();
+        }
+    });
+
+    // Escuchar evento de pedido actualizado para actualizar vista automáticamente
+    socket.on('pedido_actualizado', function(data) {
+        console.log('Evento pedido_actualizado recibido:', data);
+        if (data.usuario_id === '{{ session["username"] }}') {
+            console.log('Actualizando panel para usuario:', data.usuario_id);
+            // Cerrar modal de agregar producto pero mantener panel de mesas activas
+            closeAgregarProductoModal();
+            // Recargar el panel de mesas activas dinámicamente
+            actualizarPanelMesasActivas();
+        }
+    });
+
+    // Funciones para el modal de agregar producto
+    function openAgregarProductoModal(pedidoId) {
+        document.getElementById('pedidoIdAgregar').value = pedidoId;
+        document.getElementById('agregarProductoModal').style.display = 'block';
+    }
+
+    function closeAgregarProductoModal() {
+        document.getElementById('agregarProductoModal').style.display = 'none';
+    }
+    
+    // Funciones para el panel lateral de mesas activas
+    function openMesasActivasPanel() {
+        document.getElementById('mesasActivasPanel').classList.add('active');
+    }
+    
+    function closeMesasActivasPanel() {
+        document.getElementById('mesasActivasPanel').classList.remove('active');
+    }
+    
+    // Función para actualizar dinámicamente el panel de mesas activas
+    function actualizarPanelMesasActivas() {
+        fetch('/')
+            .then(response => response.text())
+            .then(html => {
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, 'text/html');
+                const nuevoPanel = doc.getElementById('mesasActivasPanel');
+                if (nuevoPanel) {
+                    document.getElementById('mesasActivasPanel').innerHTML = nuevoPanel.innerHTML;
+                }
+            })
+            .catch(error => console.error('Error al actualizar panel:', error));
+    }
+    
+    // Manejar el formulario de agregar producto
+    const agregarProductoForm = document.getElementById('agregarProductoForm');
+    console.log('Formulario agregar producto encontrado:', agregarProductoForm);
+    
+    if (agregarProductoForm) {
+        agregarProductoForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const pedidoId = document.getElementById('pedidoIdAgregar').value;
+            const productoSelect = document.getElementById('productoSelect').value;
+            const cantidad = document.getElementById('cantidadAgregar').value;
+            
+            console.log('Valores del formulario:');
+            console.log('  pedidoId:', pedidoId);
+            console.log('  producto_id:', productoSelect);
+            console.log('  cantidad:', cantidad);
+            
+            const formData = new FormData(this);
+            
+            // Log FormData entries
+            console.log('FormData entries:');
+            for (let [key, value] of formData.entries()) {
+                console.log('  ', key, ':', value);
+            }
+            
+            console.log('Enviando formulario agregar producto, pedidoId:', pedidoId);
+            
+            fetch(`/agregar_producto_pedido/${pedidoId}`, {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Respuesta del servidor:', data);
+                if (data.success) {
+                    closeAgregarProductoModal();
+                    // No hacer reload aquí, dejar que el socket event maneje la actualización
+                } else {
+                    alert(data.message || 'Error al agregar producto');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error al agregar producto');
+            });
+        });
+    } else {
+        console.error('No se encontró el formulario agregarProductoForm');
+    }
     
     // 1️⃣ Manejo de clicks en todos los botones +/-
     document.addEventListener('click', function(e) {

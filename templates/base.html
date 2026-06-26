@@ -21,9 +21,21 @@
                 <a href="{{ url_for('inventario') }}" class="nav-link">Inventario</a>
                 <a href="{{ url_for('admin') }}" class="nav-link">Administrar Usuarios</a>
                 <a href="{{ url_for('reportes') }}" class="nav-link">Reportes históricos</a>
+                <a href="{{ url_for('auditoria') }}" class="nav-link">Auditoría</a>
+            {% elif session.get('tipo_usuario') == 'cajero' %}
+                <a href="{{ url_for('index') }}" class="nav-link">Pedidos Activos</a>
+                <form action="{{ url_for('abrir_caja') }}" method="POST" style="display:inline;">
+                    <button type="submit" class="nav-link">Abrir Caja</button>
+                </form>
+                <form action="{{ url_for('cerrar_caja') }}" method="POST" style="display:inline;">
+                    <button type="submit" class="nav-link">Cerrar Caja</button>
+                </form>
+            {% elif session.get('tipo_usuario') == 'user' %}
+                <button onclick="openMesasActivasPanel()" class="nav-link">🍽️ Mesas Activas</button>
             {% endif %}
             <button onclick="logout()" class="nav-link">Cerrar Sesión</button>
         </nav>
+        <div class="nav__menu-overlay" onclick="toggleMenu()"></div>
 
         <div class="menu-button menu-not-active" id="menu-button">
             <span></span>

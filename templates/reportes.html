@@ -11,12 +11,23 @@
                 <th>Total</th>
             </tr>
             {% for reporte in reportes %}
+                {% if reporte.productos and reporte.productos != 'None' and reporte.productos != '[]' %}
                 <tr>
                     <td>{{ reporte.id }}</td>
-                    <td style="border-top: 1px dashed #000;">{{ reporte.productos }}</td>
-                    <td style="text-align: right; border-top: 1px dashed #000;">{{ reporte.fecha }}</td>
-                    <td>${{ reporte.total }}0</td>
+                    <td style="border-top: 1px dashed #000;">
+                        {% set productos = reporte.productos | from_json %}
+                        {% if productos %}
+                            {% for producto in productos %}
+                                x{{ producto.cantidad }} - {{ producto.nombre }} - ${{ producto.precio }}MXN<br>
+                            {% endfor %}
+                        {% else %}
+                            {{ reporte.productos }}
+                        {% endif %}
+                    </td>
+                    <td style="text-align: right; border-top: 1px dashed #000;">{{ reporte.fecha.strftime('%d/%m/%Y %H:%M') if reporte.fecha else '' }}</td>
+                    <td>${{ reporte.total }}</td>
                 </tr>
+                {% endif %}
             {% endfor %}
         </table>
     </div>

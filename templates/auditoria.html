@@ -1,0 +1,41 @@
+{% extends 'base.html' %}
+
+{% block content %}
+    <h2 style="text-align: center;">Auditoría del Sistema</h2>
+    <div style="width: 90%; margin: 0 auto;">
+        <table style="width: 100%;">
+            <thead>
+                <tr>
+                    <th>Fecha/Hora</th>
+                    <th>Usuario</th>
+                    <th>Rol</th>
+                    <th>Acción</th>
+                    <th>Descripción</th>
+                    <th>Folio</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for registro in registros %}
+                <tr>
+                    <td>{{ registro.fecha_hora.strftime('%d/%m/%Y %H:%M:%S') }}</td>
+                    <td>{{ registro.usuario_nombre }}</td>
+                    <td>{{ registro.rol }}</td>
+                    <td>{{ registro.accion }}</td>
+                    <td>{{ registro.descripcion if registro.descripcion else '-' }}</td>
+                    <td>
+                        {% if registro.pedido_id %}
+                            {{ registro.pedido_id }}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {% if registros|length == 0 %}
+        <div style="text-align: center; margin: 15% auto;">No hay registros de auditoría aún.</div>
+    {% endif %}
+{% endblock %}

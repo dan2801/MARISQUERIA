@@ -36,19 +36,40 @@ class Users(db.Model):
 
     def check_password(self, password):
         return check_password_hash(self.password, password)
-    pedidos = db.relationship('Pedidos', backref='user', lazy=True)
+    pedidos = db.relationship('Pedidos', foreign_keys='Pedidos.usuario_id', backref='user', lazy=True)
 
 class Pedidos(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100))
-    state = db.Column(db.String(20), default='pendiente')
+    folio = db.Column(db.String(20), unique=True, nullable=True)
+    estado = db.Column(db.String(20), default='ABIERTA')  # ABIERTA, ENVIADA_A_CAJA, COBRADA, CANCELADA
+    state = db.Column(db.String(20), default='pendiente')  # Mantener por compatibilidad
     fecha = db.Column(db.DateTime, default=datetime.now())
+    fecha_cobro = db.Column(db.DateTime, nullable=True)
     products = db.Column(db.JSON)
     total = db.Column(db.Float)
     usuario_id = db.Column(db.String(80), db.ForeignKey('users.username'), nullable=False)
+    cajero_id = db.Column(db.String(80), db.ForeignKey('users.username'), nullable=True)
 
 class PedidoHistorico(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     productos = db.Column(db.Text)  # o relación si usas modelo relacional
     total = db.Column(db.Float)
     fecha = db.Column(db.DateTime, default=datetime.now())
+
+class Auditoria(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    usuario_id = db.Column(db.String(80), nullable=False)
+    usuario_nombre = db.Column(db.String(80), nullable=False)
+    rol = db.Column(db.String(80), nullable=False)
+    accion = db.Column(db.String(100), nullable=False)
+    descripcion = db.Column(db.Text, nullable=True)
+    fecha_hora = db.Column(db.DateTime, default=datetime.now())
+    pedido_id = db.Column(db.Integer, db.ForeignKey('pedidos.id'), nullable=True)
+
+class MovimientosCaja(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    tipo_movimiento = db.Column(db.String(50), nullable=False)  # APERTURA, VENTA, CIERRE
+    monto = db.Column(db.Float, nullable=True)
+    usuario_id = db.Column(db.String(80), db.ForeignKey('users.username'), nullable=False)
+    fecha_hora = db.Column(db.DateTime, default=datetime.now())
+    pedido_id = db.Column(db.Integer, db.ForeignKey('pedidos.id'), nullable=True)

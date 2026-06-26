@@ -2,20 +2,22 @@
 
 {% block content %}
     <div class="productos" style="margin-top: 26px;">
-        {% for usuario in usuarios %}
-            {% if usuario.rol == "user" and usuario.pedidos|length > 0 %}
-                <details>
-                    <summary style="cursor: pointer;">Pedidos de {{ usuario.username }}</summary>
-                    <div class="product" style="flex-direction: column; padding-left: 16px;">
-                    {% for pedido in usuario.pedidos %}
-                            <div class="text_container">
+        {% for usuario_id, pedidos in pedidos_por_usuario.items() %}
+            {% if pedidos|length > 0 %}
+                <details style="margin-bottom: 20px;">
+                    <summary class="cajero-pedido-summary" style="cursor: pointer; font-size: 18px; font-weight: bold; padding: 10px; border-radius: 5px;">
+                        🧾 Pedidos de {{ usuario_id }} ({{ pedidos|length }} tickets)
+                    </summary>
+                    <div class="product" style="flex-direction: column; padding-left: 16px; margin-top: 10px;">
+                        {% for pedido in pedidos %}
+                            <div class="text_container cajero-pedido-details" id="pedido-{{ pedido.id }}" style="margin-bottom: 15px;">
                                 <details style="margin-bottom: 12px;">
-                                    <summary style="font-size: 16px; padding-top: 0px; cursor: pointer;">Pedido #{{ pedido.id }} - {{ pedido.fecha.strftime('%d/%m/%Y %H:%M') }}</summary>
+                                    <summary style="font-size: 16px; padding-top: 0px; cursor: pointer;">Folio: {{ pedido.folio if pedido.folio else 'N/A' }} - {{ pedido.fecha.strftime('%d/%m/%Y %H:%M') }} - Total: ${{ pedido.total }}</summary>
                                     {% for producto in pedido.products %}
                                         <p style="white-space: pre-line; text-wrap: pretty; padding-bottom: 12px;">x{{ producto.cantidad }} - {{ producto.nombre }} - ${{ producto.precio }}MXN</p>
                                     {% endfor %}
-                                    <div style="display: flex; flex-direction: column; justify-content: space-between; align-items: center;">
-                                        <p><strong>Total: ${{ pedido.total }}</strong> - Estado: {{ pedido.state }}</p>
+                                    <div style="display: flex; flex-direction: column; justify-content: space-between; align-items: center; margin-top: 10px;">
+                                        <p><strong>Estado: {{ pedido.estado }}</strong></p>
                                         <div>
                                             <button class="btn" onclick="guardar_historico({{ pedido.id }})">Cerrar pedido</button>
                                             <button class="btn" onclick="ticket({{ pedido.id }})">
@@ -24,61 +26,52 @@
                                         </div>
                                     </div>
                                 </details>
-
-                                <script>
-                                    function ticket(pedido_id) {
-                                        window.open(`/ticket/${pedido_id}`, '_blank', 'width=400,height=600');
-                                    }
-
-                                    function guardar_historico(pedido_id) {
-                                        fetch('/guardar_historico', {
-                                            method: 'POST',
-                                            headers: {
-                                                'Content-Type': 'application/json'
-                                            },
-                                            body: JSON.stringify({ pedido_id: pedido_id})
-                                        })
-                                        .then(response => response.json())
-                                        .then(data => {
-                                            if (data.success) {
-                                                console.log("Pedido guardado como histórico");
-
-                                                // 2. Eliminar el pedido del backend
-                                                fetch(`/delete_pedido/${pedido_id}`, {
-                                                    method: 'POST'
-                                                })
-                                                .then(res => res.json())
-                                                .then(data => {
-                                                    if (data.success) {
-                                                        console.log(`Pedido ${pedido_id} eliminado`);
-                                                        location.reload();
-                                                    }
-                                                });
-                                            } else {
-                                                console.error(data.message);
-                                            }
-                                        })
-                                    }
-
-                                    // Escuchar el evento para eliminar el pedido del DOM en tiempo real
-                                    socket.on('pedido_eliminado', function(data) {
-                                        const pedidoElement = document.getElementById(`pedido-${data.id}`);
-                                        if (pedidoElement) {
-                                            pedidoElement.remove();
-                                        }
-                                    });
-                                </script>
                             </div>
-                    {% endfor %}
+                        {% endfor %}
                     </div>
+                </details>
             {% endif %}
         {% endfor %}
     </div>
 
     
-    {% if pedidos|length == 0 %}
+    {% if pedidos_por_usuario|length == 0 %}
         <div style="text-align: center; margin: 15% auto; min-height: 10dvh;">
-            No hay pedidos aún.
+            No hay pedidos pendientes de cobro.
         </div>
     {% endif %}
+
+    <script>
+        function ticket(pedido_id) {
+            window.open(`/ticket/${pedido_id}`, '_blank', 'width=400,height=600');
+        }
+
+        function guardar_historico(pedido_id) {
+            fetch('/guardar_historico', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ pedido_id: pedido_id})
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    console.log("Pedido cobrado exitosamente");
+                    location.reload();
+                } else {
+                    console.error(data.message);
+                    alert(data.message);
+                }
+            })
+        }
+
+        // Escuchar el evento para eliminar el pedido del DOM en tiempo real
+        socket.on('pedido_cobrado', function(data) {
+            const pedidoElement = document.getElementById(`pedido-${data.id}`);
+            if (pedidoElement) {
+                pedidoElement.remove();
+            }
+        });
+    </script>
 {% endblock %}

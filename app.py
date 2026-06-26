@@ -2,14 +2,81 @@ from flask import jsonify, render_template, request, redirect, url_for, flash, s
 from collections import defaultdict
 from werkzeug.utils import secure_filename
 import os
-from models import db, Product, Category, Users, ProductVariant, Pedidos, PedidoHistorico
+from models import db, Product, Category, Users, ProductVariant, Pedidos, PedidoHistorico, Auditoria, MovimientosCaja
 from flask_socketio import emit
 from datetime import datetime
 import json
 from __init__ import init_app
+import jinja2
+from sqlalchemy.orm.attributes import flag_modified
 
 app, socketio = init_app()
 app.secret_key = b'_5#y2L"F4Q8z\n\xec]/'
+
+# Agregar filtro personalizado para parsear JSON en templates
+def from_json(value):
+    try:
+        return json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        return value
+
+app.jinja_env.filters['from_json'] = from_json
+
+# Decorador para verificar rol
+def role_required(*allowed_roles):
+    def decorator(f):
+        def wrapped(*args, **kwargs):
+            if 'username' not in session:
+                return redirect(url_for('login'))
+            if session.get('tipo_usuario') not in allowed_roles:
+                flash('No tienes permiso para acceder a esta página', 'error')
+                return redirect(url_for('index'))
+            return f(*args, **kwargs)
+        wrapped.__name__ = f.__name__
+        return wrapped
+    return decorator
+
+# Función para generar folio consecutivo
+def generar_folio():
+    ultimo_pedido = Pedidos.query.filter(Pedidos.folio.isnot(None)).order_by(Pedidos.id.desc()).first()
+    if ultimo_pedido and ultimo_pedido.folio:
+        # Extraer número del folio (T-000001 -> 1)
+        try:
+            ultimo_num = int(ultimo_pedido.folio.split('-')[1])
+            nuevo_num = ultimo_num + 1
+        except (IndexError, ValueError):
+            nuevo_num = 1
+    else:
+        nuevo_num = 1
+    return f"T-{nuevo_num:06d}"
+
+# Función para registrar auditoría
+def registrar_auditoria(accion, descripcion=None, pedido_id=None):
+    if 'username' in session:
+        usuario = Users.query.filter_by(username=session['username']).first()
+        if usuario:
+            auditoria = Auditoria(
+                usuario_id=usuario.username,
+                usuario_nombre=usuario.username,
+                rol=usuario.rol,
+                accion=accion,
+                descripcion=descripcion,
+                pedido_id=pedido_id
+            )
+            db.session.add(auditoria)
+            db.session.commit()
+
+# Función para registrar movimiento de caja
+def registrar_movimiento_caja(tipo_movimiento, monto=None, pedido_id=None):
+    if 'username' in session:
+        movimiento = MovimientosCaja(
+            tipo_movimiento=tipo_movimiento,
+            monto=monto,
+            usuario_id=session['username'],
+            pedido_id=pedido_id
+        )
+        db.session.add(movimiento)
+        db.session.commit()
 
 from models import db
 
@@ -45,10 +112,18 @@ def index():
     if rol == 'admin':
         return render_template('index.html', cat=cat, categoriaslist=categorias)
     elif rol == 'user':
-        return render_template('index_user.html', cat=cat, categoriaslist=categorias)
+        # Filtrar solo pedidos ABIERTA para el mesero
+        pedidos_mesa = Pedidos.query.filter_by(usuario_id=session['username'], estado='ABIERTA').all()
+        return render_template('index_user.html', cat=cat, categoriaslist=categorias, pedidos_mesa=pedidos_mesa)
     elif rol == 'cajero':
         usuarios = Users.query.all()
-        return render_template('index_cajero.html', cat=cat, categoriaslist=categorias, pedidos=pedidos, usuarios=usuarios)
+        # Filtrar solo pedidos ENVIADA_A_CAJA para el cajero (no mostrar COBRADA ni CANCELADA)
+        pedidos_caja = Pedidos.query.filter_by(estado='ENVIADA_A_CAJA').all()
+        # Agrupar pedidos por usuario
+        pedidos_por_usuario = defaultdict(list)
+        for pedido in pedidos_caja:
+            pedidos_por_usuario[pedido.usuario_id].append(pedido)
+        return render_template('index_cajero.html', cat=cat, categoriaslist=categorias, pedidos_por_usuario=pedidos_por_usuario, usuarios=usuarios)
     else:
         return redirect(url_for('login'))
 
@@ -57,6 +132,8 @@ def pedido_handler(data):
     try:
         print("datosss: ", data)
         pedido = Pedidos(
+            folio=generar_folio(),
+            estado='ABIERTA',
             total=data['total'],
             state=data['state'],
             fecha=datetime.now(),
@@ -64,6 +141,13 @@ def pedido_handler(data):
             usuario_id=session['username']
         )
         db.session.add(pedido)
+        db.session.commit()
+        
+        # Registrar auditoría
+        registrar_auditoria('CREAR_PEDIDO', f'Pedido {pedido.folio} creado por {session["username"]}', pedido.id)
+        
+        # Emitir evento para actualizar vista del mesero en tiempo real
+        socketio.emit('nuevo_pedido_creado', {'id': pedido.id, 'folio': pedido.folio, 'usuario_id': session['username']})
 
         for item in data['productos']:
             producto = Product.query.filter_by(name=item['nombre']).first()
@@ -98,15 +182,35 @@ def guardar_historico():
     if not pedido:
         return jsonify({'success': False, 'message': 'Pedido no encontrado'}), 404
     
+    # Verificar que el pedido no esté ya cobrado
+    if pedido.estado == 'COBRADA':
+        return jsonify({'success': False, 'message': 'Este pedido ya fue cobrado'}), 400
+    
+    # Cambiar estado a COBRADA en lugar de eliminar
+    pedido.estado = 'COBRADA'
+    pedido.fecha_cobro = datetime.now()
+    pedido.cajero_id = session['username']
+    
+    # Guardar en histórico
     historico = PedidoHistorico(
-        productos=pedido.name,
+        productos=json.dumps(pedido.products) if pedido.products else "[]",
         total=pedido.total,
         fecha=datetime.now()
     )
     db.session.add(historico)
+    
+    # Registrar movimiento de caja
+    registrar_movimiento_caja('VENTA', pedido.total, pedido.id)
+    
+    # Registrar auditoría
+    registrar_auditoria('COBRAR_PEDIDO', f'Pedido {pedido.folio} cobrado por {session["username"]}', pedido.id)
+    
     db.session.commit()
     
-    return jsonify({'success': True, 'message': 'Pedido guardado en historial'})
+    # Emitir evento para que el cajero actualice su vista
+    socketio.emit('pedido_cobrado', {'id': pedido.id, 'folio': pedido.folio})
+    
+    return jsonify({'success': True, 'message': 'Pedido cobrado y guardado en historial'})
 
 @app.route('/ticket/<int:id>')
 def ticket(id):
@@ -117,8 +221,12 @@ def ticket(id):
 def delete_pedido(pedido_id):
     pedido = Pedidos.query.get_or_404(pedido_id)
 
-    # Borrar el pedido
-    db.session.delete(pedido)
+    # Cambiar estado a CANCELADA en lugar de eliminar
+    pedido.estado = 'CANCELADA'
+    
+    # Registrar auditoría
+    registrar_auditoria('CANCELAR_PEDIDO', f'Pedido {pedido.folio} cancelado por {session["username"]}', pedido.id)
+    
     db.session.commit()
 
     # Emitir evento para que todos actualicen en tiempo real
@@ -156,20 +264,166 @@ def register():
         return redirect(url_for('index'))
 
 @app.route('/reportes', methods=['GET'])
+@role_required('admin')
 def reportes():
     reportes = PedidoHistorico.query.all()
     return render_template('reportes.html', reportes=reportes)
 
 @app.route('/logout', methods=['POST'])
 def logout():
+    if 'username' in session:
+        registrar_auditoria('CERRAR_SESION', f'Usuario {session["username"]} cerró sesión')
     session.pop('username', None)
     session.pop('tipo_usuario', None)
     return redirect(url_for('login'))
 
+@app.route('/abrir_caja', methods=['POST'])
+@role_required('cajero', 'admin')
+def abrir_caja():
+    registrar_movimiento_caja('APERTURA')
+    registrar_auditoria('ABRIR_CAJA', f'Caja abierta por {session["username"]}')
+    flash('Caja abierta correctamente', 'success')
+    return redirect(url_for('index'))
+
+@app.route('/cerrar_caja', methods=['POST'])
+@role_required('cajero', 'admin')
+def cerrar_caja():
+    # Calcular resumen del día
+    movimientos = MovimientosCaja.query.filter(
+        MovimientosCaja.tipo_movimiento.in_(['APERTURA', 'VENTA', 'CIERRE'])
+    ).order_by(MovimientosCaja.fecha_hora.desc()).all()
+    
+    ventas = [m for m in movimientos if m.tipo_movimiento == 'VENTA']
+    total_ventas = sum(v.monto for v in ventas if v.monto)
+    
+    registrar_movimiento_caja('CIERRE', total_ventas)
+    registrar_auditoria('CERRAR_CAJA', f'Caja cerrada por {session["username"]}. Total ventas: ${total_ventas}')
+    
+    flash(f'Caja cerrada. Total del día: ${total_ventas}', 'success')
+    return redirect(url_for('index'))
+
+@app.route('/auditoria')
+@role_required('admin')
+def auditoria():
+    registros = Auditoria.query.order_by(Auditoria.fecha_hora.desc()).all()
+    return render_template('auditoria.html', registros=registros)
+
+@app.route('/enviar_caja/<int:pedido_id>', methods=['POST'])
+@role_required('user', 'admin')
+def enviar_caja(pedido_id):
+    pedido = Pedidos.query.get_or_404(pedido_id)
+    
+    if pedido.estado != 'ABIERTA':
+        flash('Solo se pueden enviar pedidos en estado ABIERTA', 'error')
+        return redirect(request.referrer or url_for('index'))
+    
+    pedido.estado = 'ENVIADA_A_CAJA'
+    registrar_auditoria('ENVIAR_CAJA', f'Pedido {pedido.folio} enviado a caja por {session["username"]}', pedido.id)
+    db.session.commit()
+    
+    flash('Pedido enviado a caja correctamente', 'success')
+    return redirect(request.referrer or url_for('index'))
+
+@app.route('/agregar_producto_pedido/<int:pedido_id>', methods=['POST'])
+@role_required('user', 'admin')
+def agregar_producto_pedido(pedido_id):
+    pedido = Pedidos.query.get_or_404(pedido_id)
+    
+    # Verificar que el pedido pertenezca al usuario y esté ABIERTA
+    if pedido.usuario_id != session['username'] or pedido.estado != 'ABIERTA':
+        return jsonify({'success': False, 'message': 'No puedes editar este pedido'}), 403
+    
+    producto_id = request.form.get('producto_id')
+    cantidad = int(request.form.get('cantidad', 1))
+    
+    producto = Product.query.get(producto_id)
+    if not producto:
+        return jsonify({'success': False, 'message': 'Producto no encontrado'}), 404
+    
+    # Agregar producto al pedido
+    productos_actuales = pedido.products if pedido.products else []
+    
+    # Verificar si el producto ya está en el pedido (comparar por nombre para evitar problemas con IDs compuestos)
+    producto_existente = next((p for p in productos_actuales if p['nombre'] == producto.name), None)
+    
+    if producto_existente:
+        producto_existente['cantidad'] += cantidad
+        producto_existente['precio'] = producto.price  # Actualizar precio actual
+    else:
+        productos_actuales.append({
+            'id': str(producto.id),
+            'nombre': producto.name,
+            'precio': producto.price,
+            'cantidad': cantidad
+        })
+    
+    pedido.products = productos_actuales
+    pedido.total = sum(p['precio'] * p['cantidad'] for p in productos_actuales)
+    
+    # Marcar el campo products como modificado para que SQLAlchemy lo guarde
+    flag_modified(pedido, 'products')
+    
+    # Actualizar stock si es bebida/cerveza
+    if producto.category.name.lower() in ["cervezas", "bebidas"]:
+        if producto.stock >= cantidad:
+            producto.stock -= cantidad
+        else:
+            return jsonify({'success': False, 'message': 'Stock insuficiente'}), 400
+    
+    db.session.commit()
+    
+    registrar_auditoria('AGREGAR_PRODUCTO', f'Agregado {cantidad}x {producto.name} al pedido {pedido.folio}', pedido.id)
+    
+    # Emitir evento para actualizar vista del mesero
+    socketio.emit('pedido_actualizado', {'id': pedido.id, 'usuario_id': session['username']})
+    
+    return jsonify({'success': True, 'message': 'Producto agregado al pedido'})
+
+@app.route('/eliminar_producto_pedido/<int:pedido_id>', methods=['POST'])
+@role_required('user', 'admin')
+def eliminar_producto_pedido(pedido_id):
+    pedido = Pedidos.query.get_or_404(pedido_id)
+    
+    # Verificar que el pedido pertenezca al usuario y esté ABIERTA
+    if pedido.usuario_id != session['username'] or pedido.estado != 'ABIERTA':
+        return jsonify({'success': False, 'message': 'No puedes editar este pedido'}), 403
+    
+    producto_id = request.form.get('producto_id')
+    
+    productos_actuales = pedido.products if pedido.products else []
+    
+    # Encontrar y eliminar el producto (comparar por ID que viene del formulario)
+    producto_a_eliminar = next((p for p in productos_actuales if p['id'] == producto_id), None)
+    
+    if producto_a_eliminar:
+        productos_actuales.remove(producto_a_eliminar)
+        
+        pedido.products = productos_actuales
+        pedido.total = sum(p['precio'] * p['cantidad'] for p in productos_actuales)
+        
+        # Marcar el campo products como modificado para que SQLAlchemy lo guarde
+        flag_modified(pedido, 'products')
+        
+        db.session.commit()
+        
+        # Devolver stock si es bebida/cerveza
+        producto = Product.query.get(producto_id.split('_')[0])  # Obtener ID base si es ID compuesto
+        if producto and producto.category.name.lower() in ["cervezas", "bebidas"]:
+            producto.stock += producto_a_eliminar['cantidad']
+            db.session.commit()
+        
+        registrar_auditoria('ELIMINAR_PRODUCTO', f'Eliminado {producto_a_eliminar["nombre"]} del pedido {pedido.folio}', pedido.id)
+        
+        # Emitir evento para actualizar vista del mesero
+        socketio.emit('pedido_actualizado', {'id': pedido.id, 'usuario_id': session['username']})
+        
+        return jsonify({'success': True, 'message': 'Producto eliminado del pedido'})
+    else:
+        return jsonify({'success': False, 'message': 'Producto no encontrado en el pedido'}), 404
+
 @app.route('/create', methods=['POST'])
+@role_required('admin')
 def create():
-    if 'username' not in session:
-        return redirect(url_for('login'))
     name = request.form['name'].strip()
     categoria_id = int(request.form['categoria'])
     price = float(request.form['price'])
@@ -240,9 +494,8 @@ def create():
         return redirect(request.referrer or url_for('index'))
 
 @app.route('/create_category', methods=['GET', 'POST'])
+@role_required('admin')
 def create_category():
-    if 'username' not in session:
-        return redirect(url_for('login'))
 
     if request.method == 'POST':
         name = request.form['name']
@@ -256,9 +509,8 @@ def create_category():
         return redirect(request.referrer or url_for('index'))
 
 @app.route('/delete_category', methods=['GET', 'POST'])
+@role_required('admin')
 def delete_category():
-    if 'username' not in session:
-        return redirect(url_for('login'))
     if request.method == 'POST':
         categoria_id = request.form['categoria']
         categoria = Category.query.filter_by(id=categoria_id).first()
@@ -271,44 +523,35 @@ def delete_category():
     return redirect(request.referrer or url_for('index'))
 
 @app.route('/admin', methods=['GET'])
+@role_required('admin')
 def admin():
-    if 'username' not in session:
-        return redirect(url_for('login'))
-
-    if session['tipo_usuario'] == 'admin':
-        return render_template('admin.html', users=User.query.all())
-    else:
-        return redirect(url_for('index'))
+    return render_template('admin.html', users=Users.query.all())
 
 @app.route('/edit_user/<int:id>', methods=['POST'])
+@role_required('admin')
 def edit_user(id):
-    if 'username' not in session:
-        return redirect(url_for('login'))
-    user = User.query.get_or_404(id)
+    user = Users.query.get_or_404(id)
 
-    if request.method == 'POST' and session['tipo_usuario'] == 'admin':
+    if request.method == 'POST':
         user.username = request.form['username']
         user.rol = request.form['rol']
         db.session.commit()
         return redirect(request.referrer or url_for('admin'))
 
 @app.route('/delete_user/<int:id>', methods=['POST'])
+@role_required('admin')
 def delete_user(id):
-    if 'username' not in session:
-        return redirect(url_for('login'))
-    if session['tipo_usuario'] == 'admin':
-        user = User.query.get_or_404(id)
-        db.session.delete(user)
-        db.session.commit()
-        return redirect(request.referrer or url_for('admin'))
+    user = Users.query.get_or_404(id)
+    db.session.delete(user)
+    db.session.commit()
+    return redirect(request.referrer or url_for('admin'))
 
 @app.route('/edit/<int:id>', methods=['POST'])
+@role_required('admin')
 def edit(id):
-    if 'username' not in session:
-        return redirect(url_for('login'))
     product = Product.query.get_or_404(id)
 
-    if request.method == 'POST' and session['tipo_usuario'] == 'admin':
+    if request.method == 'POST':
         product.name = request.form['name']
         product.categoria = int(request.form['categoria'])
         product.price = float(request.form['price'])
@@ -357,16 +600,15 @@ def edit(id):
 
 
 @app.route('/delete/<int:id>', methods=['POST'])
+@role_required('admin')
 def delete(id):
-    if 'username' not in session:
-        return redirect(url_for('login'))
     product = Product.query.get_or_404(id)
 
     for variant in product.variants:
         db.session.delete(variant)
 
 
-    if request.method == 'POST' and session['tipo_usuario'] == 'admin':
+    if request.method == 'POST':
         # Eliminar imagen del sistema si existe
         if product.image:
             image_path = os.path.join(app.config['UPLOAD_FOLDER'], product.image)
@@ -378,6 +620,7 @@ def delete(id):
         return redirect(request.referrer or url_for('index'))
 
 @app.route('/inventario')
+@role_required('admin')
 def inventario():
     products = Product.query.all()
     categorias = Category.query.all()
@@ -385,14 +628,7 @@ def inventario():
     cat = defaultdict(list)
     for product in products:
         cat[product.category.name].append(product)
-
-    if 'username' not in session:
-        return redirect(url_for('login'))
-
-    if session['tipo_usuario'] == 'admin':
-        return render_template('inventario.html', cat=cat, categoriaslist=categorias)
-    else:
-        return redirect(url_for('index'))
+    return render_template('inventario.html', cat=cat, categoriaslist=categorias)
 
 
 if __name__ == '__main__':

@@ -38,9 +38,27 @@ header {
     position: absolute;
     top: 0;
     left: 0;
-    min-height: 100dvh;
+    height: 100dvh;
     background-color: var(--bg-color);
     box-shadow: 11px 9px 20px 0px rgba(50, 30, 10, 0.3);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    z-index: 1000;
+}
+
+.nav__menu-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    z-index: 999;
+}
+
+.nav__menu.active + .nav__menu-overlay {
+    display: block;
 }
 
 .nav__menu a, .nav__menu button {
@@ -209,6 +227,150 @@ span + span {
 }
 
 /* END NAV SECTION*/
+
+/* PANEL LATERAL MESAS ACTIVAS */
+.mesas-activas-panel {
+    position: fixed;
+    top: 0;
+    right: -100%;
+    width: 100%;
+    height: 100dvh;
+    background-color: rgba(75, 54, 33, 0.95);
+    box-shadow: -11px 9px 20px 0px rgba(50, 30, 10, 0.3);
+    z-index: 200;
+    transition: right 0.7s ease;
+    padding: 20px;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    backdrop-filter: blur(10px);
+}
+
+.mesas-activas-panel.active {
+    right: 0;
+}
+
+.mesas-activas-panel h2 {
+    color: var(--text-color);
+    text-align: center;
+    margin-bottom: 20px;
+    padding-top: 60px;
+    font-size: clamp(1.2rem, 5vw, 1.8rem);
+}
+
+.mesas-activas-panel .close-panel {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background-color: rgba(243, 229, 220, 0.3);
+    color: var(--text-color);
+    border: none;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    font-size: 20px;
+    cursor: pointer;
+    transition: 0.3s;
+    z-index: 121;
+}
+
+.mesas-activas-panel .close-panel:hover {
+    background-color: rgba(243, 229, 220, 0.5);
+    transform: scale(1.1);
+}
+
+.mesas-activas-panel .pedido-item {
+    background-color: rgba(243, 229, 220, 0.15);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 16px;
+    border: 1px solid rgba(243, 229, 220, 0.3);
+}
+
+.mesas-activas-panel .pedido-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid rgba(243, 229, 220, 0.3);
+}
+
+.mesas-activas-panel .pedido-header p {
+    color: var(--text-color);
+    margin: 4px 0;
+}
+
+.mesas-activas-panel .pedido-header .total {
+    font-size: 1.3em;
+    font-weight: bold;
+}
+
+.mesas-activas-panel .producto-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    color: var(--text-color);
+}
+
+.mesas-activas-panel .producto-item span {
+    flex: 1;
+}
+
+.mesas-activas-panel .producto-item form {
+    display: inline;
+}
+
+.mesas-activas-panel .pedido-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 16px;
+    flex-wrap: wrap;
+}
+
+.mesas-activas-panel .btn-panel {
+    background-color: rgba(243, 229, 220, 0.2);
+    color: var(--text-color);
+    border: 1px solid rgba(243, 229, 220, 0.4);
+    padding: 10px 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: 0.3s;
+    font-size: clamp(0.8rem, 5vw, 0.9rem);
+}
+
+.mesas-activas-panel .btn-panel:hover {
+    background-color: rgba(243, 229, 220, 0.4);
+    transform: scale(1.05);
+}
+
+.mesas-activas-panel .no-mesas {
+    text-align: center;
+    color: rgba(243, 229, 220, 0.7);
+    padding: 40px 20px;
+    font-size: clamp(0.9rem, 5vw, 1.1rem);
+}
+
+@media (min-width: 960px) {
+    .mesas-activas-panel {
+        width: 40%;
+    }
+}
+/* END PANEL LATERAL MESAS ACTIVAS */
+
+/* CAJERO STYLES */
+.cajero-pedido-summary {
+    background-color: rgba(243, 229, 220, 0.95) !important;
+    backdrop-filter: blur(10px) !important;
+}
+
+.cajero-pedido-details {
+    background-color: rgba(245, 245, 245, 0.95) !important;
+    backdrop-filter: blur(10px) !important;
+    border-radius: 8px;
+    padding: 12px;
+}
+/* END CAJERO STYLES */
 a, button {
     border: none;
     cursor: pointer;
@@ -416,14 +578,14 @@ img {
     height: 25%;
 }
 
+.modal-delivery.show {
+    display: block;
+}
+
 .modal-flash {
     display: none;
     z-index: 20;
     background-color: rgba(0, 0, 0, 0.7);
-}
-
-.modal-delivery.show {
-    display: block;
 }
 
 .modal-flash.show {
@@ -450,7 +612,7 @@ h4 {
 }
 
 .modal-content-delivery {
-    background-color: #f5f5f5;
+    background-color: rgba(243 229 220 / 0%) !important;
     display: flex;
     flex-direction: row;
     justify-content: space-between;
@@ -460,6 +622,28 @@ h4 {
     bottom: 0;
     box-shadow: rgba(0, 0, 0, 0.3) 0px 2px 10px 0px;
     z-index: 150;
+    backdrop-filter: blur(10px) !important;
+}
+
+.modal-content-delivery .close-panel {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background-color: rgba(75, 54, 33, 0.2);
+    color: #4b3621;
+    border: none;
+    border-radius: 50%;
+    width: 32px;
+    height: 32px;
+    font-size: 16px;
+    cursor: pointer;
+    transition: 0.3s;
+    z-index: 151;
+}
+
+.modal-content-delivery .close-panel:hover {
+    background-color: rgba(75, 54, 33, 0.4);
+    transform: scale(1.1);
 }
 
 .modal-content-user {
