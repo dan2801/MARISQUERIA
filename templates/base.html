@@ -24,12 +24,12 @@
                 <a href="{{ url_for('auditoria') }}" class="nav-link">Auditoría</a>
             {% elif session.get('tipo_usuario') == 'cajero' %}
                 <a href="{{ url_for('index') }}" class="nav-link">Pedidos Activos</a>
-                <form action="{{ url_for('abrir_caja') }}" method="POST" style="display:inline;">
-                    <button type="submit" class="nav-link">Abrir Caja</button>
-                </form>
-                <form action="{{ url_for('cerrar_caja') }}" method="POST" style="display:inline;">
-                    <button type="submit" class="nav-link">Cerrar Caja</button>
-                </form>
+                {% if caja_abierta %}
+                    <span class="nav-link" style="color: #4CAF50;">✓ Caja Abierta (${{ monto_inicial }})</span>
+                    <button onclick="openModalCerrarCaja()" class="nav-link">Cerrar Caja</button>
+                {% else %}
+                    <button onclick="openModalAbrirCaja()" class="nav-link">Abrir Caja</button>
+                {% endif %}
             {% elif session.get('tipo_usuario') == 'user' %}
                 <button onclick="openMesasActivasPanel()" class="nav-link">🍽️ Mesas Activas</button>
             {% endif %}
@@ -67,5 +67,49 @@
             <p id="flash-message-text"></p>
         </div>
     </div>
+
+    <!-- Modal para abrir caja -->
+    <div id="modal-abrir-caja" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModalAbrirCaja()">&times;</span>
+            <h2>Abrir Caja</h2>
+            <form action="{{ url_for('abrir_caja') }}" method="POST">
+                <label for="monto_inicial">Monto inicial (dinero en caja):</label>
+                <input type="number" name="monto_inicial" step="0.01" min="0" value="0" placeholder="0.00" required>
+                <p style="font-size: 12px; color: #666;">Ingresa el dinero que ya tienes en caja (cambio, etc.)</p>
+                <button type="submit" class="btn">Confirmar Apertura</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal para cerrar caja -->
+    <div id="modal-cerrar-caja" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModalCerrarCaja()">&times;</span>
+            <h2>Cerrar Caja</h2>
+            <p>¿Estás seguro de que deseas cerrar la caja?</p>
+            <form action="{{ url_for('cerrar_caja') }}" method="POST">
+                <button type="submit" class="btn">Confirmar Cierre</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        function openModalAbrirCaja() {
+            document.getElementById('modal-abrir-caja').classList.add('show');
+        }
+
+        function closeModalAbrirCaja() {
+            document.getElementById('modal-abrir-caja').classList.remove('show');
+        }
+
+        function openModalCerrarCaja() {
+            document.getElementById('modal-cerrar-caja').classList.add('show');
+        }
+
+        function closeModalCerrarCaja() {
+            document.getElementById('modal-cerrar-caja').classList.remove('show');
+        }
+    </script>
 </body>
 </html>

@@ -70,6 +70,7 @@ class MovimientosCaja(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     tipo_movimiento = db.Column(db.String(50), nullable=False)  # APERTURA, VENTA, CIERRE
     monto = db.Column(db.Float, nullable=True)
+    monto_inicial = db.Column(db.Float, nullable=True)  # Dinero inicial al abrir caja
     usuario_id = db.Column(db.String(80), db.ForeignKey('users.username'), nullable=False)
     fecha_hora = db.Column(db.DateTime, default=datetime.now())
     pedido_id = db.Column(db.Integer, db.ForeignKey('pedidos.id'), nullable=True)

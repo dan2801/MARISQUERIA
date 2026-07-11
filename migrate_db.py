@@ -52,12 +52,20 @@ def migrate_database():
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     tipo_movimiento VARCHAR(50) NOT NULL,
                     monto FLOAT,
+                    monto_inicial FLOAT,
                     usuario_id VARCHAR(80) NOT NULL,
                     fecha_hora DATETIME DEFAULT CURRENT_TIMESTAMP,
                     pedido_id INTEGER
                 )
             """)
             print("Tabla 'movimientos_caja' creada")
+        else:
+            # Verificar si la columna monto_inicial existe en la tabla existente
+            cursor.execute("PRAGMA table_info(movimientos_caja)")
+            columns = [column[1] for column in cursor.fetchall()]
+            if 'monto_inicial' not in columns:
+                cursor.execute("ALTER TABLE movimientos_caja ADD COLUMN monto_inicial FLOAT")
+                print("Columna 'monto_inicial' agregada a movimientos_caja")
         
         conn.commit()
         conn.close()

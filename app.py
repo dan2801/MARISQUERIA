@@ -67,11 +67,12 @@ def registrar_auditoria(accion, descripcion=None, pedido_id=None):
             db.session.commit()
 
 # Función para registrar movimiento de caja
-def registrar_movimiento_caja(tipo_movimiento, monto=None, pedido_id=None):
+def registrar_movimiento_caja(tipo_movimiento, monto=None, monto_inicial=None, pedido_id=None):
     if 'username' in session:
         movimiento = MovimientosCaja(
             tipo_movimiento=tipo_movimiento,
             monto=monto,
+            monto_inicial=monto_inicial,
             usuario_id=session['username'],
             pedido_id=pedido_id
         )
@@ -98,6 +99,8 @@ def obtener_base_nombre(nombre):
 
 @app.route('/')
 def index():
+    from datetime import date
+    
     rol = session.get('tipo_usuario')
 
     products = Product.query.all()
@@ -109,8 +112,33 @@ def index():
 
     pedidos = Pedidos.query.all()
 
+    # Verificar estado de caja para el cajero
+    caja_abierta = False
+    monto_inicial = 0
+    if rol == 'cajero' or rol == 'admin':
+        # Buscar la apertura activa (la que NO tiene cierre posterior)
+        # Usar ID en lugar de fecha porque múltiples movimientos pueden tener la misma fecha
+        todas_aperturas = MovimientosCaja.query.filter(
+            MovimientosCaja.tipo_movimiento == 'APERTURA',
+            MovimientosCaja.usuario_id == session.get('username')
+        ).order_by(MovimientosCaja.id.desc()).all()
+        
+        for apertura in todas_aperturas:
+            # Verificar si hay un cierre después de esta apertura (por ID)
+            cierre_despues = MovimientosCaja.query.filter(
+                MovimientosCaja.tipo_movimiento == 'CIERRE',
+                MovimientosCaja.usuario_id == session.get('username'),
+                MovimientosCaja.id > apertura.id
+            ).first()
+            
+            # Solo está abierta si NO hay cierre después de la apertura
+            if not cierre_despues:
+                caja_abierta = True
+                monto_inicial = apertura.monto_inicial
+                break
+
     if rol == 'admin':
-        return render_template('index.html', cat=cat, categoriaslist=categorias)
+        return render_template('index.html', cat=cat, categoriaslist=categorias, caja_abierta=caja_abierta, monto_inicial=monto_inicial)
     elif rol == 'user':
         # Filtrar solo pedidos ABIERTA para el mesero
         pedidos_mesa = Pedidos.query.filter_by(usuario_id=session['username'], estado='ABIERTA').all()
@@ -123,7 +151,7 @@ def index():
         pedidos_por_usuario = defaultdict(list)
         for pedido in pedidos_caja:
             pedidos_por_usuario[pedido.usuario_id].append(pedido)
-        return render_template('index_cajero.html', cat=cat, categoriaslist=categorias, pedidos_por_usuario=pedidos_por_usuario, usuarios=usuarios)
+        return render_template('index_cajero.html', cat=cat, categoriaslist=categorias, pedidos_por_usuario=pedidos_por_usuario, usuarios=usuarios, caja_abierta=caja_abierta, monto_inicial=monto_inicial)
     else:
         return redirect(url_for('login'))
 
@@ -280,26 +308,76 @@ def logout():
 @app.route('/abrir_caja', methods=['POST'])
 @role_required('cajero', 'admin')
 def abrir_caja():
-    registrar_movimiento_caja('APERTURA')
-    registrar_auditoria('ABRIR_CAJA', f'Caja abierta por {session["username"]}')
-    flash('Caja abierta correctamente', 'success')
+    # Verificar si ya hay una apertura activa (sin cierre posterior)
+    # Usar ID en lugar de fecha porque múltiples movimientos pueden tener la misma fecha
+    todas_aperturas = MovimientosCaja.query.filter(
+        MovimientosCaja.tipo_movimiento == 'APERTURA',
+        MovimientosCaja.usuario_id == session['username']
+    ).order_by(MovimientosCaja.id.desc()).all()
+    
+    for apertura in todas_aperturas:
+        # Verificar si hay un cierre después de esta apertura (por ID)
+        cierre_despues = MovimientosCaja.query.filter(
+            MovimientosCaja.tipo_movimiento == 'CIERRE',
+            MovimientosCaja.usuario_id == session['username'],
+            MovimientosCaja.id > apertura.id
+        ).first()
+        
+        # Si NO hay cierre después, la caja sigue abierta
+        if not cierre_despues:
+            flash(f'La caja ya está abierta con monto inicial: ${apertura.monto_inicial}. Debe cerrarla antes de abrirla nuevamente.', 'error')
+            return redirect(url_for('index'))
+    
+    monto_inicial = request.form.get('monto_inicial')
+    monto_inicial = float(monto_inicial) if monto_inicial else 0.0
+    
+    registrar_movimiento_caja('APERTURA', monto_inicial=monto_inicial)
+    registrar_auditoria('ABRIR_CAJA', f'Caja abierta por {session["username"]} con monto inicial: ${monto_inicial}')
+    flash(f'Caja abierta correctamente. Monto inicial: ${monto_inicial}', 'success')
     return redirect(url_for('index'))
 
 @app.route('/cerrar_caja', methods=['POST'])
 @role_required('cajero', 'admin')
 def cerrar_caja():
-    # Calcular resumen del día
-    movimientos = MovimientosCaja.query.filter(
-        MovimientosCaja.tipo_movimiento.in_(['APERTURA', 'VENTA', 'CIERRE'])
-    ).order_by(MovimientosCaja.fecha_hora.desc()).all()
+    # Obtener la última apertura de caja que NO tiene cierre posterior
+    # Usar ID en lugar de fecha porque múltiples movimientos pueden tener la misma fecha
+    todas_aperturas = MovimientosCaja.query.filter(
+        MovimientosCaja.tipo_movimiento == 'APERTURA',
+        MovimientosCaja.usuario_id == session['username']
+    ).order_by(MovimientosCaja.id.desc()).all()
     
-    ventas = [m for m in movimientos if m.tipo_movimiento == 'VENTA']
+    apertura_activa = None
+    for apertura in todas_aperturas:
+        # Verificar si hay un cierre después de esta apertura (por ID)
+        cierre_despues = MovimientosCaja.query.filter(
+            MovimientosCaja.tipo_movimiento == 'CIERRE',
+            MovimientosCaja.usuario_id == session['username'],
+            MovimientosCaja.id > apertura.id
+        ).first()
+        
+        if not cierre_despues:
+            apertura_activa = apertura
+            break
+    
+    if not apertura_activa:
+        flash('No hay una apertura de caja activa para cerrar.', 'error')
+        return redirect(url_for('index'))
+    
+    # Filtrar ventas solo entre la apertura activa y ahora (por ID)
+    ventas = MovimientosCaja.query.filter(
+        MovimientosCaja.tipo_movimiento == 'VENTA',
+        MovimientosCaja.usuario_id == session['username'],
+        MovimientosCaja.id > apertura_activa.id
+    ).all()
+    
     total_ventas = sum(v.monto for v in ventas if v.monto)
+    monto_inicial = apertura_activa.monto_inicial if apertura_activa.monto_inicial else 0.0
+    total_esperado = monto_inicial + total_ventas
     
-    registrar_movimiento_caja('CIERRE', total_ventas)
-    registrar_auditoria('CERRAR_CAJA', f'Caja cerrada por {session["username"]}. Total ventas: ${total_ventas}')
+    registrar_movimiento_caja('CIERRE', total_esperado)
+    registrar_auditoria('CERRAR_CAJA', f'Caja cerrada por {session["username"]}. Monto inicial: ${monto_inicial}, Ventas: ${total_ventas}, Total esperado: ${total_esperado}')
     
-    flash(f'Caja cerrada. Total del día: ${total_ventas}', 'success')
+    flash(f'Caja cerrada. Monto inicial: ${monto_inicial}, Ventas: ${total_ventas}, Total esperado: ${total_esperado}', 'success')
     return redirect(url_for('index'))
 
 @app.route('/auditoria')
@@ -535,7 +613,17 @@ def edit_user(id):
     if request.method == 'POST':
         user.username = request.form['username']
         user.rol = request.form['rol']
+        
+        # Actualizar contraseña si se proporciona
+        password = request.form.get('password')
+        if password and password.strip():
+            user.set_password(password)
+        
         db.session.commit()
+        
+        # Registrar auditoría
+        registrar_auditoria('EDITAR_USUARIO', f'Usuario {user.username} editado por {session["username"]}')
+        
         return redirect(request.referrer or url_for('admin'))
 
 @app.route('/delete_user/<int:id>', methods=['POST'])
