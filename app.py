@@ -66,7 +66,7 @@ def registrar_auditoria(accion, descripcion=None, pedido_id=None):
             db.session.add(auditoria)
             db.session.commit()
 
-# Función para registrar movimiento de caja
+# Función para registrar movimiento de cajaa
 def registrar_movimiento_caja(tipo_movimiento, monto=None, monto_inicial=None, pedido_id=None):
     if 'username' in session:
         movimiento = MovimientosCaja(
