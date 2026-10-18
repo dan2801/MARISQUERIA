@@ -237,7 +237,7 @@ span + span {
     height: 100dvh;
     background-color: rgba(75, 54, 33, 0.95);
     box-shadow: -11px 9px 20px 0px rgba(50, 30, 10, 0.3);
-    z-index: 200;
+    z-index: 100;
     transition: right 0.7s ease;
     padding: 20px;
     overflow-y: auto;
@@ -303,6 +303,12 @@ span + span {
 .mesas-activas-panel .pedido-header .total {
     font-size: 1.3em;
     font-weight: bold;
+}
+
+.mesas-activas-panel .productos-lista {
+    max-height: 200px;
+    overflow-y: auto;
+    margin: 10px 0;
 }
 
 .mesas-activas-panel .producto-item {
@@ -570,8 +576,8 @@ img {
 
 .modal-delivery {
     display: none;
-    position: absolute;
-    z-index: 150;
+    position: fixed;
+    z-index: 2000;
     left: 0;
     bottom: 0;
     width: 100%;
@@ -612,7 +618,7 @@ h4 {
 }
 
 .modal-content-delivery {
-    background-color: rgba(243 229 220 / 0%) !important;
+    background-color: rgba(243, 229, 220, 0.95) !important;
     display: flex;
     flex-direction: row;
     justify-content: space-between;
@@ -621,7 +627,7 @@ h4 {
     position: fixed;
     bottom: 0;
     box-shadow: rgba(0, 0, 0, 0.3) 0px 2px 10px 0px;
-    z-index: 150;
+    z-index: 2001;
     backdrop-filter: blur(10px) !important;
 }
 

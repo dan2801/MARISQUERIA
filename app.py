@@ -464,7 +464,8 @@ def eliminar_producto_pedido(pedido_id):
     
     # Verificar que el pedido pertenezca al usuario y esté ABIERTA
     if pedido.usuario_id != session['username'] or pedido.estado != 'ABIERTA':
-        return jsonify({'success': False, 'message': 'No puedes editar este pedido'}), 403
+        flash('No puedes editar este pedido', 'error')
+        return redirect(request.referrer or url_for('index'))
     
     producto_id = request.form.get('producto_id')
     
@@ -495,9 +496,11 @@ def eliminar_producto_pedido(pedido_id):
         # Emitir evento para actualizar vista del mesero
         socketio.emit('pedido_actualizado', {'id': pedido.id, 'usuario_id': session['username']})
         
-        return jsonify({'success': True, 'message': 'Producto eliminado del pedido'})
+        flash('Producto eliminado del pedido', 'success')
+        return redirect(request.referrer or url_for('index'))
     else:
-        return jsonify({'success': False, 'message': 'Producto no encontrado en el pedido'}), 404
+        flash('Producto no encontrado en el pedido', 'error')
+        return redirect(request.referrer or url_for('index'))
 
 @app.route('/create', methods=['POST'])
 @role_required('admin')
@@ -611,8 +614,16 @@ def edit_user(id):
     user = Users.query.get_or_404(id)
 
     if request.method == 'POST':
-        user.username = request.form['username']
-        user.rol = request.form['rol']
+        new_username = request.form['username']
+        new_rol = request.form['rol']
+        
+        # Validar que el usuario no cambie su propio rol a algo que no sea admin
+        if user.username == session.get('username') and new_rol != 'admin':
+            flash('No puedes cambiar tu propio rol a algo diferente de admin', 'error')
+            return redirect(request.referrer or url_for('admin'))
+        
+        user.username = new_username
+        user.rol = new_rol
         
         # Actualizar contraseña si se proporciona
         password = request.form.get('password')
@@ -630,6 +641,28 @@ def edit_user(id):
 @role_required('admin')
 def delete_user(id):
     user = Users.query.get_or_404(id)
+    
+    # Validar que el usuario no se elimine a sí mismo
+    if user.username == session.get('username'):
+        flash('No puedes eliminar tu propio usuario', 'error')
+        return redirect(request.referrer or url_for('admin'))
+    
+    # Verificar si el usuario tiene pedidos ACTIVOS (solo bloquear si hay pedidos abiertos)
+    pedidos_activos = Pedidos.query.filter_by(usuario_id=user.username, estado='ABIERTA').first()
+    if pedidos_activos:
+        flash('No puedes eliminar un usuario que tiene pedidos activos', 'error')
+        return redirect(request.referrer or url_for('admin'))
+    
+    # Eliminar referencias al usuario en pedidos históricos para no violar foreign keys
+    Pedidos.query.filter_by(usuario_id=user.username).update({'usuario_id': 'USUARIO_ELIMINADO'})
+    Pedidos.query.filter_by(cajero_id=user.username).update({'cajero_id': None})
+    
+    # Eliminar referencias en movimientos de caja
+    MovimientosCaja.query.filter_by(usuario_id=user.username).update({'usuario_id': 'USUARIO_ELIMINADO'})
+    
+    # Registrar auditoría antes de eliminar
+    registrar_auditoria('ELIMINAR_USUARIO', f'Usuario {user.username} eliminado por {session["username"]}')
+    
     db.session.delete(user)
     db.session.commit()
     return redirect(request.referrer or url_for('admin'))

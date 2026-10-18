@@ -58,7 +58,7 @@
                 </div>
                 <p class="total">${{ pedido.total }}</p>
             </div>
-            <div>
+            <div class="productos-lista">
                 {% for producto in pedido.products %}
                     <div class="producto-item">
                         <span>x{{ producto.cantidad }} - {{ producto.nombre }} - ${{ producto.precio }}MXN</span>
@@ -190,11 +190,16 @@
 
     // Funciones para el modal de agregar producto
     function openAgregarProductoModal(pedidoId) {
+        console.log('openAgregarProductoModal llamado con pedidoId:', pedidoId);
         document.getElementById('pedidoIdAgregar').value = pedidoId;
-        document.getElementById('agregarProductoModal').style.display = 'block';
+        const modal = document.getElementById('agregarProductoModal');
+        console.log('Modal encontrado:', modal);
+        modal.style.display = 'block';
+        console.log('Modal display después:', modal.style.display);
     }
 
     function closeAgregarProductoModal() {
+        console.log('closeAgregarProductoModal llamado');
         document.getElementById('agregarProductoModal').style.display = 'none';
     }
     
@@ -295,6 +300,13 @@
                 cantidad: parseInt(data.cantidad)
             });
             actualizarQuantity(data.id, -1);
+        }
+        
+        // Debug para botón agregar producto
+        if (e.target.textContent.includes('Agregar Producto')) {
+            console.log('Botón Agregar Producto clickeado');
+            console.log('Elemento:', e.target);
+            console.log('Atributo onclick:', e.target.getAttribute('onclick'));
         }
     });
     
