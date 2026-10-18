@@ -22,25 +22,74 @@
             font-weight: bold;
             border-top: 1px dashed #000;
         }
+        {% if vista_auditoria %}
+        body {
+            width: auto;
+            margin: 0;
+            padding: 24px 16px;
+            background: #f3e5dc;
+            color: #4b3621;
+        }
+        .ticket-contenido {
+            width: 290px;
+            max-width: 100%;
+            box-sizing: border-box;
+            margin: auto;
+            padding: 18px 12px;
+            background: white;
+            box-shadow: 0 8px 28px rgba(75, 54, 33, 0.15);
+            border-radius: 12px;
+        }
+        .ticket-acciones { text-align: center; margin: 20px auto 0; }
+        .ticket-acciones button {
+            padding: 12px 24px;
+            border: 0;
+            border-radius: 10px;
+            font: inherit;
+            cursor: pointer;
+            background: #4b3621;
+            color: white;
+        }
+        .ticket-acciones button:focus-visible { outline: 3px solid #996b42; outline-offset: 3px; }
+        @media print {
+            body { width: 290px; padding: 0; background: white; color: black; }
+            .ticket-contenido { padding: 0; margin: 0; border-radius: 0; box-shadow: none; }
+            .ticket-acciones { display: none; }
+        }
+        {% endif %}
     </style>
 </head>
 <body>
+    <div class="ticket-contenido">
     <h2>MARISQUERIA LA FLOR DEL PUERTO</h2>
-    <h3>Ticket #{{ pedido.id }}</h3>
+    <h3>Ticket {{ pedido.folio or pedido.id }}</h3>
     <p>Fecha: {{ pedido.fecha.strftime('%d/%m/%Y %H:%M') }}</p>
+    {% if vista_auditoria %}
+    <p>Estado: {{ pedido.estado }}<br>Mesero: {{ pedido.usuario_id }}</p>
+    {% endif %}
 
     <table>
+        {% for producto in pedido.products or [] %}
         <tr>
-            <td style="white-space: pre-line;">{{ pedido.name }}</td>
+            <td>{{ producto.cantidad }} x {{ producto.nombre }}<br>${{ '%.2f'|format(producto.precio) }} c/u</td>
+            <td style="text-align:right;">${{ '%.2f'|format(producto.precio * producto.cantidad) }}</td>
         </tr>
+        {% endfor %}
         <tr class="total">
             <td>Total</td>
-            <td style="text-align:right;">{{ pedido.total }}</td>
+            <td style="text-align:right;">${{ '%.2f'|format(pedido.total) }}</td>
         </tr>
     </table>
+    </div>
 
+    {% if vista_auditoria %}
+    <div class="ticket-acciones">
+        <button type="button" onclick="window.print()">Reimprimir ticket</button>
+    </div>
+    {% else %}
     <script>
         window.print(); // Imprime automáticamente al abrir
     </script>
+    {% endif %}
 </body>
 </html>

@@ -1,39 +1,71 @@
 {% extends 'base.html' %}
-
 {% block content %}
-    <h2 style="text-align: center;">Reportes históricos</h2>
-    <div style="width: 90%; margin: 0 auto;">
-        <table style="width: 100%;">
-            <tr>
-                <th>#</th>
-                <th>Productos</th>
-                <th>Fecha</th>
-                <th>Total</th>
-            </tr>
-            {% for reporte in reportes %}
-                {% if reporte.productos and reporte.productos != 'None' and reporte.productos != '[]' %}
-                <tr>
-                    <td>{{ reporte.id }}</td>
-                    <td style="border-top: 1px dashed #000;">
-                        {% set productos = reporte.productos | from_json %}
-                        {% if productos %}
-                            {% for producto in productos %}
-                                x{{ producto.cantidad }} - {{ producto.nombre }} - ${{ producto.precio }}MXN<br>
-                            {% endfor %}
-                        {% else %}
-                            {{ reporte.productos }}
-                        {% endif %}
-                    </td>
-                    <td style="text-align: right; border-top: 1px dashed #000;">{{ reporte.fecha.strftime('%d/%m/%Y %H:%M') if reporte.fecha else '' }}</td>
-                    <td>${{ reporte.total }}</td>
-                </tr>
-                {% endif %}
-            {% endfor %}
-        </table>
+<section class="ventas-pagina">
+    <h2>Reportes de ventas</h2>
+    <p class="ventas-subtitulo">Ventas de tickets cobrados, según la fecha de cobro.</p>
+    <form method="GET" class="auditoria-filtros ventas-filtros">
+        <div><label for="ventasPeriodo">Periodo</label>
+            <select name="periodo" id="ventasPeriodo" onchange="mostrarFechasVentas()">
+                {% for clave, nombre in [('hoy', 'Hoy'), ('semana', 'Esta semana hasta hoy'), ('mes', 'Este mes hasta hoy'), ('rango', 'Rango personalizado')] %}
+                <option value="{{ clave }}" {% if periodo == clave %}selected{% endif %}>{{ nombre }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div data-fecha-ventas {% if periodo != 'rango' %}hidden{% endif %}><label for="ventasDesde">Desde</label><input id="ventasDesde" type="date" name="desde" value="{{ request.args.get('desde', inicio.isoformat()) }}"></div>
+        <div data-fecha-ventas {% if periodo != 'rango' %}hidden{% endif %}><label for="ventasHasta">Hasta</label><input id="ventasHasta" type="date" name="hasta" value="{{ request.args.get('hasta', fin.isoformat()) }}"></div>
+        <label class="ventas-comparar"><input type="checkbox" name="comparar" value="1" {% if comparar %}checked{% endif %}> Comparar con el periodo anterior</label>
+        <div class="auditoria-filtros__acciones"><button type="submit" class="btn">Aplicar filtros</button><a class="auditoria-ver-ticket" href="{{ url_for('reportes') }}">Limpiar</a></div>
+    </form>
+    {% if error %}<p role="alert" class="ventas-error">{{ error }}</p>{% else %}
+    <p class="ventas-subtitulo">{{ inicio.strftime('%d/%m/%Y') }} – {{ fin.strftime('%d/%m/%Y') }}{% if comparar %} · Comparado con {{ resumen.inicio_anterior.strftime('%d/%m/%Y') }} – {{ resumen.fin_anterior.strftime('%d/%m/%Y') }}{% endif %}</p>
+    <div class="ventas-resumen">
+        <article><span>Total vendido</span><strong>${{ '{:,.2f}'.format(resumen.total) }}</strong><small>MXN</small></article>
+        <article><span>Tickets cobrados</span><strong>{{ resumen.cantidad }}</strong><small>En el periodo seleccionado</small></article>
+        <article><span>Promedio por ticket</span><strong>${{ '{:,.2f}'.format(resumen.promedio) }}</strong><small>MXN</small></article>
+        <article><span>Día con mayor venta</span><strong>{{ resumen.mejor_dia.strftime('%d/%m/%Y') if resumen.mejor_dia else 'Sin ventas' }}</strong><small>${{ '{:,.2f}'.format(resumen.mejor_total) }}</small></article>
+        {% if comparar %}<article><span>Frente al periodo anterior</span><strong>{% if resumen.cambio is not none %}{{ '%+.1f'|format(resumen.cambio) }}%{% else %}Sin base de comparación{% endif %}</strong><small>Anterior: ${{ '{:,.2f}'.format(resumen.anterior) }} · {{ resumen.cantidad_anterior }} tickets</small></article>{% endif %}
     </div>
-    
-
-    {% if reportes|length == 0 %}
-        <div>No hay reportes aún.</div>
+    <section class="ventas-grafica" aria-labelledby="ventasGraficaTitulo">
+        <h3 id="ventasGraficaTitulo">Ventas por {{ {'hora':'hora', 'dia':'día', 'mes':'mes'}[resumen.agrupacion] }}</h3>
+        <p class="ventas-leyenda"><span>● Periodo seleccionado</span>{% if comparar %}<span class="ventas-leyenda__anterior">● Periodo anterior</span>{% endif %}</p>
+        {% if resumen.cantidad == 0 %}<p>No hay ventas cobradas en el periodo seleccionado.</p>{% endif %}
+        <p class="ventas-subtitulo">Toca una barra para ver su importe y cantidad de tickets.</p>
+        <div class="ventas-grafica-scroll" tabindex="0" aria-label="Gráfica de barras; desplázate para ver todas las fechas">
+            <div class="ventas-barras">
+                {% for barra in resumen.barras %}
+                <div class="ventas-barra-grupo">
+                    <div class="ventas-barra-columnas">
+                        <button type="button" class="ventas-barra" style="height: {{ barra.alto }}%"
+                            data-detalle="{{ barra.etiqueta }} · ${{ '{:,.2f}'.format(barra.actual) }} MXN · {{ barra.tickets }} tickets cobrados"
+                            title="{{ barra.etiqueta }} · ${{ '{:,.2f}'.format(barra.actual) }} · {{ barra.tickets }} tickets"
+                            aria-label="{{ barra.etiqueta }}: {{ '%.2f'|format(barra.actual) }} pesos, {{ barra.tickets }} tickets"></button>
+                        {% if comparar %}<button type="button" class="ventas-barra ventas-barra--anterior" style="height: {{ barra.alto_anterior }}%"
+                            data-detalle="Anterior: {{ barra.periodo_anterior }} · ${{ '{:,.2f}'.format(barra.anterior) }} MXN · {{ barra.tickets_anterior }} tickets cobrados"
+                            title="{{ barra.periodo_anterior }} · ${{ '{:,.2f}'.format(barra.anterior) }} · {{ barra.tickets_anterior }} tickets"
+                            aria-label="Anterior, {{ barra.periodo_anterior }}: {{ '%.2f'|format(barra.anterior) }} pesos, {{ barra.tickets_anterior }} tickets"></button>{% endif %}
+                    </div>
+                    <span class="ventas-barra-etiqueta">{{ barra.etiqueta }}</span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        <p id="ventasDetalle" class="ventas-detalle" role="status">Importes en MXN. Los días sin ventas se muestran en cero.</p>
+        <details class="ventas-tabla"><summary>Ver valores de la gráfica</summary>
+            <div class="ventas-tabla-scroll"><table><thead><tr><th>Periodo</th><th>Vendido</th><th>Tickets</th>{% if comparar %}<th>Periodo anterior</th><th>Vendido anterior</th><th>Tickets anteriores</th>{% endif %}</tr></thead>
+            <tbody>{% for barra in resumen.barras %}<tr><td>{{ barra.etiqueta }}</td><td>${{ '{:,.2f}'.format(barra.actual) }}</td><td>{{ barra.tickets }}</td>{% if comparar %}<td>{{ barra.periodo_anterior }}</td><td>${{ '{:,.2f}'.format(barra.anterior) }}</td><td>{{ barra.tickets_anterior }}</td>{% endif %}</tr>{% endfor %}</tbody></table></div>
+        </details>
+    </section>
     {% endif %}
+    {% if sin_fecha %}<p class="ventas-subtitulo">{{ sin_fecha }} cuentas cobradas sin fecha de cobro no se incluyen en la gráfica.</p>{% endif %}
+    <p class="ventas-subtitulo">Consulta y reimprime las cuentas en <a href="{{ url_for('tickets') }}">Tickets</a>. El archivo histórico anterior se consulta por separado y no se suma a estas ventas.</p>
+</section>
+<script>
+    function mostrarFechasVentas() {
+        const mostrar = document.getElementById('ventasPeriodo').value === 'rango';
+        document.querySelectorAll('[data-fecha-ventas]').forEach(campo => campo.hidden = !mostrar);
+    }
+    document.querySelectorAll('[data-detalle]').forEach(barra => {
+        barra.addEventListener('click', () => document.getElementById('ventasDetalle').textContent = barra.dataset.detalle);
+    });
+</script>
 {% endblock %}

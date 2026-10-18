@@ -20,7 +20,8 @@
             {% if session.get('tipo_usuario') == 'admin' %}
                 <a href="{{ url_for('inventario') }}" class="nav-link">Inventario</a>
                 <a href="{{ url_for('admin') }}" class="nav-link">Administrar Usuarios</a>
-                <a href="{{ url_for('reportes') }}" class="nav-link">Reportes históricos</a>
+                <a href="{{ url_for('reportes') }}" class="nav-link">Reportes de ventas</a>
+                <a href="{{ url_for('tickets') }}" class="nav-link">Tickets</a>
                 <a href="{{ url_for('auditoria') }}" class="nav-link">Auditoría</a>
             {% elif session.get('tipo_usuario') == 'cajero' %}
                 <a href="{{ url_for('index') }}" class="nav-link">Pedidos Activos</a>

@@ -17,6 +17,218 @@ body {
     display: block;
 }
 
+.confirmacion-mesa {
+    margin: auto;
+    width: min(440px, calc(100% - 32px));
+    max-height: calc(100dvh - 32px);
+    overflow-y: auto;
+    padding: 28px;
+    background: #f3e5dc;
+    color: #4b3621;
+    border: 1px solid rgba(75, 54, 33, 0.3);
+    border-radius: 16px;
+    box-shadow: 0 18px 55px rgba(50, 30, 10, 0.35);
+    font-family: inherit;
+}
+
+.confirmacion-mesa::backdrop {
+    background: rgba(50, 30, 10, 0.6);
+    backdrop-filter: blur(4px);
+}
+
+.confirmacion-mesa h2 {
+    margin-bottom: 14px;
+    font-size: 1.2rem;
+    font-weight: 700;
+}
+
+.confirmacion-mesa p {
+    font-size: 0.95rem;
+    line-height: 1.65;
+    overflow-wrap: anywhere;
+}
+
+.confirmacion-mesa__acciones {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 24px;
+}
+
+.confirmacion-mesa button {
+    flex: 1 1 140px;
+    min-height: 44px;
+    padding: 11px 16px;
+    border: 1px solid #4b3621;
+    border-radius: 10px;
+    font: inherit;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.2s, box-shadow 0.2s;
+}
+
+.confirmacion-mesa__cancelar {
+    background: transparent;
+    color: #4b3621;
+}
+
+.confirmacion-mesa__cancelar:hover {
+    background: rgba(75, 54, 33, 0.1);
+}
+
+.confirmacion-mesa__aceptar {
+    background: #4b3621;
+    color: #fff;
+}
+
+.confirmacion-mesa__aceptar:hover {
+    background: #352517;
+}
+
+.confirmacion-mesa button:focus-visible {
+    outline: 3px solid #996b42;
+    outline-offset: 3px;
+}
+
+.caja-notificaciones-control {
+    margin: 20px auto;
+    text-align: center;
+}
+
+.caja-notificaciones-control p {
+    margin-top: 8px;
+    font-size: 0.85rem;
+    line-height: 1.5;
+}
+
+.aviso-ticket-caja {
+    position: fixed;
+    right: 20px;
+    bottom: 24px;
+    z-index: 2100;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    width: min(390px, calc(100% - 32px));
+    padding: 20px;
+    border: 1px solid rgba(75, 54, 33, 0.3);
+    border-left: 5px solid #4b3621;
+    border-radius: 16px;
+    background: #f3e5dc;
+    color: #4b3621;
+    box-shadow: 0 12px 36px rgba(50, 30, 10, 0.3);
+    animation: entrada-ticket-caja 0.3s ease-out;
+}
+
+.aviso-ticket-caja[hidden] { display: none; }
+.aviso-ticket-caja strong { font-size: 1.05rem; }
+.aviso-ticket-caja p { margin-top: 6px; font-size: 0.85rem; line-height: 1.5; overflow-wrap: anywhere; }
+.aviso-ticket-caja > div { flex: 1; min-width: 0; }
+.aviso-ticket-caja__icono {
+    display: inline-block;
+    font-size: 2.4rem;
+    animation: platito-pop 0.7s ease-in-out 7;
+}
+.aviso-ticket-caja button {
+    align-self: flex-start;
+    min-width: 32px;
+    min-height: 32px;
+    border: 0;
+    border-radius: 50%;
+    background: rgba(75, 54, 33, 0.1);
+    color: #4b3621;
+    cursor: pointer;
+}
+.aviso-ticket-caja button:focus-visible { outline: 2px solid #4b3621; outline-offset: 3px; }
+@keyframes entrada-ticket-caja {
+    from { opacity: 0; transform: translateX(25px); }
+    to { opacity: 1; transform: translateX(0); }
+}
+@keyframes platito-pop {
+    0%, 100% { transform: scale(1) rotate(0); }
+    35% { transform: scale(1.22) rotate(-8deg); }
+    65% { transform: scale(1.1) rotate(8deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .aviso-ticket-caja, .aviso-ticket-caja__icono { animation: none; }
+}
+
+.auditoria-ver-ticket {
+    display: inline-block;
+    padding: 8px 12px;
+    border: 1px solid #4b3621;
+    border-radius: 8px;
+    color: #4b3621;
+    text-decoration: none;
+    font-weight: 600;
+    white-space: nowrap;
+}
+.auditoria-filtros {
+    width: 90%;
+    margin: 24px auto 12px;
+    padding: 20px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr));
+    gap: 16px;
+    align-items: end;
+    border: 1px solid rgba(75, 54, 33, 0.25);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.4);
+}
+.auditoria-filtros input, .auditoria-filtros select {
+    width: 100%;
+    min-height: 44px;
+    padding: 10px;
+    border: 1px solid rgba(75, 54, 33, 0.4);
+    border-radius: 8px;
+    background: #fffaf6;
+    color: #4b3621;
+    font: inherit;
+}
+.auditoria-filtros__acciones { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.auditoria-resultado { width: 90%; margin: 12px auto; line-height: 1.5; }
+.auditoria-ver-ticket:hover { background: rgba(75, 54, 33, 0.1); }
+.auditoria-ver-ticket:focus-visible { outline: 2px solid #4b3621; outline-offset: 3px; }
+
+.ventas-pagina { width: 94%; max-width: 1400px; margin: 24px auto; }
+.ventas-pagina > h2 { text-align: center; margin-bottom: 12px; }
+.ventas-subtitulo { margin: 14px 0; font-size: 0.9rem; line-height: 1.6; }
+.ventas-filtros { width: 100%; }
+.ventas-filtros .ventas-comparar { display: flex; align-items: center; gap: 10px; line-height: 1.5; }
+.ventas-comparar input[type="checkbox"] { width: 20px; min-height: 20px; height: 20px; accent-color: #4b3621; flex-shrink: 0; }
+.ventas-resumen { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); gap: 14px; margin: 22px 0; }
+.ventas-resumen article { padding: 20px; border: 1px solid #d9c4b3; border-radius: 14px; background: #fffaf6; display: flex; flex-direction: column; gap: 10px; }
+.ventas-resumen article span, .ventas-resumen article small { font-size: 0.85rem; line-height: 1.5; }
+.ventas-resumen article strong { font-size: clamp(1.1rem, 2vw, 1.6rem); overflow-wrap: anywhere; }
+.ventas-grafica { padding: 22px; background: #fffaf6; border: 1px solid #d9c4b3; border-radius: 16px; }
+.ventas-leyenda { display: flex; flex-wrap: wrap; gap: 18px; margin: 16px 0; font-size: 0.85rem; }
+.ventas-leyenda__anterior { color: #99704a; }
+.ventas-grafica-scroll, .ventas-tabla-scroll { overflow-x: auto; padding: 6px 3px; }
+.ventas-barras { display: flex; gap: 12px; min-width: 100%; width: max-content; align-items: flex-end; }
+.ventas-barra-grupo { flex: 1 0 64px; min-width: 64px; }
+.ventas-barra-columnas {
+    display: flex; align-items: flex-end; justify-content: center; gap: 5px;
+    height: 240px; border-bottom: 1px solid #ac8f73;
+    background: repeating-linear-gradient(to top, transparent 0, transparent 59px, #eaddd0 59px, #eaddd0 60px);
+}
+.ventas-barra {
+    display: block; width: 26px; min-height: 3px; border: 0; border-radius: 5px 5px 0 0;
+    background: #4b3621; cursor: pointer; transition: opacity 0.2s;
+}
+.ventas-barra--anterior { background: #bd946c; border: 1px solid #99704a; }
+.ventas-barra:hover { opacity: 0.75; transform: none; }
+.ventas-barra:focus-visible { outline: 3px solid #cc9b49; outline-offset: 2px; }
+.ventas-barra-etiqueta { display: block; font-size: 0.74rem; text-align: center; margin-top: 10px; max-width: 82px; line-height: 1.4; }
+.ventas-detalle { margin: 18px 0; padding: 12px; border-radius: 8px; background: #f3e5dc; font-size: 0.9rem; line-height: 1.5; }
+.ventas-tabla summary { cursor: pointer; font-weight: 600; padding: 12px 0; }
+.ventas-tabla table, .tickets-tabla { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.ventas-tabla td, .ventas-tabla th, .tickets-tabla td, .tickets-tabla th { padding: 12px; text-align: left; border-bottom: 1px solid #d9c4b3; line-height: 1.5; }
+.tickets-pestanas { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 20px 0; }
+.tickets-pestanas [aria-current="page"] { background: #4b3621; color: white; }
+.ventas-error { padding: 16px; border: 1px solid #b42318; border-radius: 10px; color: #b42318; }
+
 /* NAV SECTION */
 header {
     display: flex;
@@ -371,10 +583,45 @@ span + span {
 }
 
 .cajero-pedido-details {
+    position: relative;
     background-color: rgba(245, 245, 245, 0.95) !important;
     backdrop-filter: blur(10px) !important;
     border-radius: 8px;
     padding: 12px;
+}
+
+.cajero-pedido-details > details > summary {
+    padding-right: 54px;
+    min-height: 44px;
+}
+
+.cancelar-ticket-caja {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    color: #b42318;
+    background: #fff0ed;
+    border: 1px solid #eab8b2;
+    border-radius: 10px;
+}
+
+.cancelar-ticket-caja:hover {
+    background: #fbd9d4;
+    transform: none;
+}
+
+.cancelar-ticket-caja:focus-visible {
+    outline: 2px solid #b42318;
+    outline-offset: 3px;
+}
+
+.cancelar-ticket-caja:disabled {
+    opacity: 0.5;
+    cursor: wait;
 }
 /* END CAJERO STYLES */
 a, button {

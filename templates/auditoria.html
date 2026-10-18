@@ -2,7 +2,58 @@
 
 {% block content %}
     <h2 style="text-align: center;">Auditoría del Sistema</h2>
-    <div style="width: 90%; margin: 0 auto;">
+    <form class="auditoria-filtros" method="GET" action="{{ url_for('auditoria') }}">
+        <div>
+            <label for="auditoriaAccion">Tipo de acción</label>
+            <select id="auditoriaAccion" name="accion">
+                <option value="">Todas las acciones</option>
+                {% for clave, grupo in grupos.items() %}
+                <optgroup label="{{ grupo[0] }}">
+                    <option value="{{ clave }}" {% if filtros.accion == clave %}selected{% endif %}>Todas: {{ grupo[0] }}</option>
+                    {% for accion, nombre in grupo[1].items() %}
+                    <option value="{{ accion }}" {% if filtros.accion == accion %}selected{% endif %}>{{ nombre }}</option>
+                    {% endfor %}
+                </optgroup>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label for="auditoriaPeriodo">Periodo</label>
+            <select id="auditoriaPeriodo" name="periodo" onchange="actualizarFechasAuditoria()">
+                <option value="hoy" {% if filtros.periodo == 'hoy' %}selected{% endif %}>Hoy</option>
+                <option value="rango" {% if filtros.periodo == 'rango' %}selected{% endif %}>Rango de fechas</option>
+                <option value="todo" {% if filtros.periodo == 'todo' %}selected{% endif %}>Todo el historial</option>
+            </select>
+        </div>
+        <div data-fecha-auditoria {% if filtros.periodo != 'rango' %}hidden{% endif %}>
+            <label for="auditoriaDesde">Desde</label>
+            <input type="date" id="auditoriaDesde" name="desde" value="{{ filtros.desde }}">
+        </div>
+        <div data-fecha-auditoria {% if filtros.periodo != 'rango' %}hidden{% endif %}>
+            <label for="auditoriaHasta">Hasta</label>
+            <input type="date" id="auditoriaHasta" name="hasta" value="{{ filtros.hasta }}">
+        </div>
+        <div>
+            <label for="auditoriaUsuario">Usuario</label>
+            <select id="auditoriaUsuario" name="usuario">
+                <option value="">Todos los usuarios</option>
+                {% for usuario in usuarios %}
+                <option value="{{ usuario }}" {% if filtros.usuario == usuario %}selected{% endif %}>{{ usuario }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label for="auditoriaFolio">Folio</label>
+            <input type="search" id="auditoriaFolio" name="folio" value="{{ filtros.folio }}" placeholder="Ej. T-000001">
+        </div>
+        <div class="auditoria-filtros__acciones">
+            <button class="btn" type="submit">Aplicar filtros</button>
+            <a class="auditoria-ver-ticket" href="{{ url_for('auditoria') }}">Limpiar</a>
+        </div>
+    </form>
+    {% if error %}<p class="auditoria-resultado" role="alert">{{ error }}</p>{% endif %}
+    <p class="auditoria-resultado">{{ registros|length }} registros{% if filtros.periodo == 'hoy' %} de hoy{% endif %}</p>
+    <div style="width: 90%; margin: 0 auto; overflow-x: auto;">
         <table style="width: 100%;">
             <thead>
                 <tr>
@@ -12,6 +63,7 @@
                     <th>Acción</th>
                     <th>Descripción</th>
                     <th>Folio</th>
+                    <th>Ticket</th>
                 </tr>
             </thead>
             <tbody>
@@ -20,11 +72,18 @@
                     <td>{{ registro.fecha_hora.strftime('%d/%m/%Y %H:%M:%S') }}</td>
                     <td>{{ registro.usuario_nombre }}</td>
                     <td>{{ registro.rol }}</td>
-                    <td>{{ registro.accion }}</td>
+                    <td>{{ etiquetas.get(registro.accion, registro.accion) }}</td>
                     <td>{{ registro.descripcion if registro.descripcion else '-' }}</td>
                     <td>
-                        {% if registro.pedido_id %}
-                            {{ registro.pedido_id }}
+                        {% if registro.pedido %}
+                            {{ registro.pedido.folio or registro.pedido.id }}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if registro.pedido %}
+                            <a class="auditoria-ver-ticket" href="{{ url_for('ticket_auditoria', pedido_id=registro.pedido_id) }}" target="_blank" rel="noopener">Ver ticket</a>
                         {% else %}
                             -
                         {% endif %}
@@ -36,6 +95,12 @@
     </div>
 
     {% if registros|length == 0 %}
-        <div style="text-align: center; margin: 15% auto;">No hay registros de auditoría aún.</div>
+        <div style="text-align: center; margin: 32px auto;">No hay registros que coincidan con los filtros.</div>
     {% endif %}
+    <script>
+        function actualizarFechasAuditoria() {
+            const mostrar = document.getElementById('auditoriaPeriodo').value === 'rango';
+            document.querySelectorAll('[data-fecha-auditoria]').forEach(campo => campo.hidden = !mostrar);
+        }
+    </script>
 {% endblock %}

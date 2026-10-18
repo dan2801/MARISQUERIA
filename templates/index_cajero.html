@@ -1,17 +1,43 @@
 {% extends 'base.html' %}
 
 {% block content %}
+    <dialog id="confirmarCierreCaja" class="confirmacion-mesa" aria-labelledby="confirmarCierreCajaTitulo" aria-describedby="confirmarCierreCajaMensaje">
+        <form method="dialog">
+            <h2 id="confirmarCierreCajaTitulo">Cerrar pedido</h2>
+            <p id="confirmarCierreCajaMensaje"></p>
+            <div class="confirmacion-mesa__acciones">
+                <button type="submit" value="cancelar" class="confirmacion-mesa__cancelar" autofocus>Cancelar</button>
+                <button type="submit" value="confirmar" id="confirmarAccionPedidoCaja" class="confirmacion-mesa__aceptar">Sí, cerrar pedido</button>
+            </div>
+        </form>
+    </dialog>
+    <div class="caja-notificaciones-control">
+        <p id="estadoSonidoCaja" role="status"></p>
+    </div>
+    <aside id="avisoTicketCaja" class="aviso-ticket-caja" role="status" aria-live="polite" hidden>
+        <span class="aviso-ticket-caja__icono" aria-hidden="true">🍽️</span>
+        <div><strong>¡Nuevo ticket!</strong><p id="avisoTicketCajaDetalle"></p></div>
+        <button type="button" id="cerrarAvisoCaja" aria-label="Cerrar aviso">✕</button>
+    </aside>
+    <div id="pedidosCaja">
     <div class="productos" style="margin-top: 26px;">
         {% for usuario_id, pedidos in pedidos_por_usuario.items() %}
             {% if pedidos|length > 0 %}
-                <details style="margin-bottom: 20px;">
+                <details data-grupo-caja="{{ usuario_id }}" style="margin-bottom: 20px;">
                     <summary class="cajero-pedido-summary" style="cursor: pointer; font-size: 18px; font-weight: bold; padding: 10px; border-radius: 5px;">
                         🧾 Pedidos de {{ usuario_id }} ({{ pedidos|length }} tickets)
                     </summary>
                     <div class="product" style="flex-direction: column; padding-left: 16px; margin-top: 10px;">
                         {% for pedido in pedidos %}
                             <div class="text_container cajero-pedido-details" id="pedido-{{ pedido.id }}" style="margin-bottom: 15px;">
-                                <details style="margin-bottom: 12px;">
+                                <button type="button" class="cancelar-ticket-caja" data-folio="{{ pedido.folio or pedido.id }}"
+                                        onclick="cancelarPedidoCaja({{ pedido.id }}, this)"
+                                        aria-label="Cancelar pedido {{ pedido.folio or pedido.id }}" title="Cancelar pedido">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                                        <path d="M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6M14 10v6"/>
+                                    </svg>
+                                </button>
+                                <details data-ticket-caja="{{ pedido.id }}" style="margin-bottom: 12px;">
                                     <summary style="font-size: 16px; padding-top: 0px; cursor: pointer;">Folio: {{ pedido.folio if pedido.folio else 'N/A' }} - {{ pedido.fecha.strftime('%d/%m/%Y %H:%M') }} - Total: ${{ pedido.total }}</summary>
                                     {% for producto in pedido.products %}
                                         <p style="white-space: pre-line; text-wrap: pretty; padding-bottom: 12px;">x{{ producto.cantidad }} - {{ producto.nombre }} - ${{ producto.precio }}MXN</p>
@@ -19,7 +45,8 @@
                                     <div style="display: flex; flex-direction: column; justify-content: space-between; align-items: center; margin-top: 10px;">
                                         <p><strong>Estado: {{ pedido.estado }}</strong></p>
                                         <div>
-                                            <button class="btn" onclick="guardar_historico({{ pedido.id }})">Cerrar pedido</button>
+                                            <button type="button" class="btn" data-folio="{{ pedido.folio or pedido.id }}" data-total="{{ '%.2f'|format(pedido.total) }}"
+                                                    onclick="guardar_historico({{ pedido.id }}, this)">Cerrar pedido</button>
                                             <button class="btn" onclick="ticket({{ pedido.id }})">
                                                 <img src="{{ url_for('static', filename='images/print-svgrepo-com.svg') }}" alt="Imprimir" width="20" height="20" style="filter: invert(100%);">
                                             </button>
@@ -40,38 +67,7 @@
             No hay pedidos pendientes de cobro.
         </div>
     {% endif %}
+    </div>
 
-    <script>
-        function ticket(pedido_id) {
-            window.open(`/ticket/${pedido_id}`, '_blank', 'width=400,height=600');
-        }
-
-        function guardar_historico(pedido_id) {
-            fetch('/guardar_historico', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ pedido_id: pedido_id})
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    console.log("Pedido cobrado exitosamente");
-                    location.reload();
-                } else {
-                    console.error(data.message);
-                    alert(data.message);
-                }
-            })
-        }
-
-        // Escuchar el evento para eliminar el pedido del DOM en tiempo real
-        socket.on('pedido_cobrado', function(data) {
-            const pedidoElement = document.getElementById(`pedido-${data.id}`);
-            if (pedidoElement) {
-                pedidoElement.remove();
-            }
-        });
-    </script>
+    <script src="{{ url_for('static', filename='js/caja.js') }}"></script>
 {% endblock %}

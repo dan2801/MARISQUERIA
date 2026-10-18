@@ -43,7 +43,7 @@ class Pedidos(db.Model):
     folio = db.Column(db.String(20), unique=True, nullable=True)
     estado = db.Column(db.String(20), default='ABIERTA')  # ABIERTA, ENVIADA_A_CAJA, COBRADA, CANCELADA
     state = db.Column(db.String(20), default='pendiente')  # Mantener por compatibilidad
-    fecha = db.Column(db.DateTime, default=datetime.now())
+    fecha = db.Column(db.DateTime, default=datetime.now)
     fecha_cobro = db.Column(db.DateTime, nullable=True)
     products = db.Column(db.JSON)
     total = db.Column(db.Float)
@@ -54,7 +54,7 @@ class PedidoHistorico(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     productos = db.Column(db.Text)  # o relación si usas modelo relacional
     total = db.Column(db.Float)
-    fecha = db.Column(db.DateTime, default=datetime.now())
+    fecha = db.Column(db.DateTime, default=datetime.now)
 
 class Auditoria(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -63,8 +63,9 @@ class Auditoria(db.Model):
     rol = db.Column(db.String(80), nullable=False)
     accion = db.Column(db.String(100), nullable=False)
     descripcion = db.Column(db.Text, nullable=True)
-    fecha_hora = db.Column(db.DateTime, default=datetime.now())
+    fecha_hora = db.Column(db.DateTime, default=datetime.now)
     pedido_id = db.Column(db.Integer, db.ForeignKey('pedidos.id'), nullable=True)
+    pedido = db.relationship('Pedidos', lazy='joined')
 
 class MovimientosCaja(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -72,5 +73,5 @@ class MovimientosCaja(db.Model):
     monto = db.Column(db.Float, nullable=True)
     monto_inicial = db.Column(db.Float, nullable=True)  # Dinero inicial al abrir caja
     usuario_id = db.Column(db.String(80), db.ForeignKey('users.username'), nullable=False)
-    fecha_hora = db.Column(db.DateTime, default=datetime.now())
+    fecha_hora = db.Column(db.DateTime, default=datetime.now)
     pedido_id = db.Column(db.Integer, db.ForeignKey('pedidos.id'), nullable=True)

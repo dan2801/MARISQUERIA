@@ -1,6 +1,25 @@
 {% extends 'base.html' %}
 
 {% block content %}
+<dialog id="confirmacionMesa" class="confirmacion-mesa" aria-labelledby="confirmacionMesaTitulo" aria-describedby="confirmacionMesaMensaje">
+    <form method="dialog">
+        <h2 id="confirmacionMesaTitulo">Confirmar acción</h2>
+        <p id="confirmacionMesaMensaje"></p>
+        <div class="confirmacion-mesa__acciones">
+            <button type="submit" value="cancelar" class="confirmacion-mesa__cancelar" autofocus>Cancelar</button>
+            <button type="submit" value="confirmar" id="confirmacionMesaAceptar" class="confirmacion-mesa__aceptar">Confirmar</button>
+        </div>
+    </form>
+</dialog>
+<dialog id="exitoEnvioCaja" class="confirmacion-mesa" aria-labelledby="exitoEnvioCajaTitulo" aria-describedby="exitoEnvioCajaMensaje">
+    <form method="dialog">
+        <h2 id="exitoEnvioCajaTitulo">Pedido enviado</h2>
+        <p id="exitoEnvioCajaMensaje">Pedido enviado a caja con éxito.</p>
+        <div class="confirmacion-mesa__acciones">
+            <button type="submit" class="confirmacion-mesa__aceptar" autofocus>Aceptar</button>
+        </div>
+    </form>
+</dialog>
 <!-- Modal del pedido -->
 <div id="pedidoModal" class="modal-delivery">
     <div class="modal-content-delivery">
@@ -63,9 +82,12 @@
                     <div class="producto-item">
                         <span>x{{ producto.cantidad }} - {{ producto.nombre }} - ${{ producto.precio }}MXN</span>
                         {% if pedido.estado == 'ABIERTA' %}
-                        <form action="{{ url_for('eliminar_producto_pedido', pedido_id=pedido.id) }}" method="POST">
+                        <form action="{{ url_for('eliminar_producto_pedido', pedido_id=pedido.id) }}" method="POST"
+                              data-confirmacion="¿Confirmas eliminar {{ producto.cantidad }} x {{ producto.nombre }} del pedido {{ pedido.folio or pedido.id }}?"
+                              data-titulo="Eliminar producto" data-boton="Sí, eliminar"
+                              onsubmit="return confirmarFormularioMesa(this)">
                             <input type="hidden" name="producto_id" value="{{ producto.id }}">
-                            <button type="submit" class="btn-panel">❌</button>
+                            <button type="submit" class="btn-panel" aria-label="Eliminar producto" title="Eliminar producto">❌</button>
                         </form>
                         {% endif %}
                     </div>
@@ -73,8 +95,11 @@
             </div>
             {% if pedido.estado == 'ABIERTA' %}
             <div class="pedido-actions">
-                <button onclick="openAgregarProductoModal({{ pedido.id }})" class="btn-panel">➕ Agregar Producto</button>
-                <form action="{{ url_for('enviar_caja', pedido_id=pedido.id) }}" method="POST">
+                <button onclick="openAgregarProductoModal({{ pedido.id }}, this.dataset.folio)" data-folio="{{ pedido.folio or pedido.id }}" class="btn-panel">➕ Agregar Producto</button>
+                <form action="{{ url_for('enviar_caja', pedido_id=pedido.id) }}" method="POST"
+                      data-confirmacion="¿Confirmas enviar el pedido {{ pedido.folio or pedido.id }} a caja? Después ya no podrás modificarlo."
+                      data-titulo="Enviar a caja" data-boton="Sí, enviar a caja" data-exito-caja="true"
+                      onsubmit="return confirmarFormularioMesa(this)">
                     <button type="submit" class="btn-panel">📤 Enviar a Caja</button>
                 </form>
             </div>
@@ -168,11 +193,122 @@
 <script>
     const socket = io();
     let pedido = [];
+    let enviandoPedido = false;
+    let audioConfirmacion = null;
+
+    // Activar el audio durante el clic del usuario para permitirlo en móviles.
+    function prepararAudioConfirmacion() {
+        try {
+            const ContextoAudio = window.AudioContext || window.webkitAudioContext;
+            if (!ContextoAudio) return;
+            if (!audioConfirmacion || audioConfirmacion.state === 'closed') {
+                audioConfirmacion = new ContextoAudio();
+            }
+            if (audioConfirmacion.state === 'suspended') {
+                audioConfirmacion.resume().catch(() => {});
+            }
+        } catch (error) {
+            // El envío funciona también cuando el navegador no permite audio.
+        }
+    }
+
+    document.getElementById('confirmacionMesaAceptar').addEventListener('click', prepararAudioConfirmacion);
+
+    function sonarConfirmacionCaja() {
+        try {
+            if (!audioConfirmacion || audioConfirmacion.state !== 'running') return;
+            const inicio = audioConfirmacion.currentTime + 0.02;
+            // Dos notas ascendentes suaves, sin archivos ni descargas externas.
+            [880, 1174.66].forEach((frecuencia, indice) => {
+                const nota = audioConfirmacion.createOscillator();
+                const volumen = audioConfirmacion.createGain();
+                const tiempo = inicio + indice * 0.16;
+                nota.type = 'sine';
+                nota.frequency.value = frecuencia;
+                volumen.gain.setValueAtTime(0, tiempo);
+                volumen.gain.linearRampToValueAtTime(0.14, tiempo + 0.015);
+                volumen.gain.exponentialRampToValueAtTime(0.001, tiempo + 0.34);
+                nota.connect(volumen);
+                volumen.connect(audioConfirmacion.destination);
+                nota.onended = () => {
+                    nota.disconnect();
+                    volumen.disconnect();
+                };
+                nota.start(tiempo);
+                nota.stop(tiempo + 0.36);
+            });
+        } catch (error) {
+            // Un problema de audio no debe ocultar la confirmación visual.
+        }
+    }
+
+    // El diálogo retiene el foco y permite cancelar también con Escape.
+    function confirmarAccionMesa(titulo, mensaje, boton) {
+        const dialogo = document.getElementById('confirmacionMesa');
+        if (dialogo.open) return Promise.resolve(false);
+        document.getElementById('confirmacionMesaTitulo').textContent = titulo;
+        document.getElementById('confirmacionMesaMensaje').textContent = mensaje;
+        document.getElementById('confirmacionMesaAceptar').textContent = boton;
+        dialogo.returnValue = '';
+        return new Promise(resolve => {
+            dialogo.addEventListener('close', () => resolve(dialogo.returnValue === 'confirmar'), { once: true });
+            dialogo.showModal();
+        });
+    }
+
+    function confirmarFormularioMesa(formulario) {
+        if (formulario.dataset.enviando === 'true') return false;
+        confirmarAccionMesa(formulario.dataset.titulo, formulario.dataset.confirmacion, formulario.dataset.boton)
+            .then(async confirmado => {
+                if (confirmado && formulario.isConnected) {
+                    formulario.dataset.enviando = 'true';
+                    const botones = formulario.querySelectorAll('button');
+                    botones.forEach(boton => boton.disabled = true);
+                    try {
+                        const respuesta = await fetch(formulario.action, {
+                            method: 'POST',
+                            headers: { 'Accept': 'application/json' },
+                            body: new FormData(formulario)
+                        });
+                        const datos = await respuesta.json();
+                        if (!respuesta.ok || !datos.success) {
+                            throw new Error(datos.message || 'No se pudo realizar la acción');
+                        }
+                        if (formulario.dataset.exitoCaja === 'true') {
+                            sonarConfirmacionCaja();
+                        }
+                        openMesasActivasPanel();
+                        await actualizarPanelMesasActivas();
+                        if (formulario.dataset.exitoCaja === 'true') {
+                            const aviso = document.getElementById('exitoEnvioCaja');
+                            if (!aviso.open) aviso.showModal();
+                        }
+                    } catch (error) {
+                        alert(error.message || 'No se pudo realizar la acción');
+                    } finally {
+                        delete formulario.dataset.enviando;
+                        botones.forEach(boton => boton.disabled = false);
+                    }
+                }
+            });
+        return false;
+    }
+
+    socket.on('pedido_error', function(data) {
+        enviandoPedido = false;
+        alert(data.error || 'No se pudo crear el pedido');
+    });
     
     // Escuchar evento de nuevo pedido creado para actualizar vista automáticamente
     socket.on('nuevo_pedido_creado', function(data) {
         if (data.usuario_id === '{{ session["username"] }}') {
-            location.reload();
+            enviandoPedido = false;
+            pedido = [];
+            actualizarResumenPedido();
+            closePedidoModal();
+            document.querySelectorAll('[id^="quantity-"]').forEach(span => span.textContent = '0');
+            openMesasActivasPanel();
+            actualizarPanelMesasActivas();
         }
     });
 
@@ -189,9 +325,10 @@
     });
 
     // Funciones para el modal de agregar producto
-    function openAgregarProductoModal(pedidoId) {
+    function openAgregarProductoModal(pedidoId, folio) {
         console.log('openAgregarProductoModal llamado con pedidoId:', pedidoId);
         document.getElementById('pedidoIdAgregar').value = pedidoId;
+        document.getElementById('agregarProductoForm').dataset.folio = folio || pedidoId;
         const modal = document.getElementById('agregarProductoModal');
         console.log('Modal encontrado:', modal);
         modal.style.display = 'block';
@@ -213,15 +350,23 @@
     }
     
     // Función para actualizar dinámicamente el panel de mesas activas
+    let actualizacionMesas = 0;
     function actualizarPanelMesasActivas() {
-        fetch('/')
-            .then(response => response.text())
+        const actualizacion = ++actualizacionMesas;
+        return fetch('/')
+            .then(response => {
+                if (!response.ok || response.redirected) throw new Error('No se pudieron actualizar las mesas');
+                return response.text();
+            })
             .then(html => {
                 const parser = new DOMParser();
                 const doc = parser.parseFromString(html, 'text/html');
                 const nuevoPanel = doc.getElementById('mesasActivasPanel');
-                if (nuevoPanel) {
-                    document.getElementById('mesasActivasPanel').innerHTML = nuevoPanel.innerHTML;
+                if (nuevoPanel && actualizacion === actualizacionMesas) {
+                    const panel = document.getElementById('mesasActivasPanel');
+                    const posicion = panel.scrollTop;
+                    panel.innerHTML = nuevoPanel.innerHTML;
+                    panel.scrollTop = posicion;
                 }
             })
             .catch(error => console.error('Error al actualizar panel:', error));
@@ -232,19 +377,24 @@
     console.log('Formulario agregar producto encontrado:', agregarProductoForm);
     
     if (agregarProductoForm) {
-        agregarProductoForm.addEventListener('submit', function(e) {
+        agregarProductoForm.addEventListener('submit', async function(e) {
             e.preventDefault();
             
             const pedidoId = document.getElementById('pedidoIdAgregar').value;
             const productoSelect = document.getElementById('productoSelect').value;
             const cantidad = document.getElementById('cantidadAgregar').value;
+            const nombreProducto = document.getElementById('productoSelect').selectedOptions[0].textContent;
+            const formData = new FormData(this);
+            if (!await confirmarAccionMesa('Agregar producto',
+                `¿Confirmas agregar ${cantidad} x ${nombreProducto} al pedido ${this.dataset.folio}?`, 'Sí, agregar')) {
+                return;
+            }
             
             console.log('Valores del formulario:');
             console.log('  pedidoId:', pedidoId);
             console.log('  producto_id:', productoSelect);
             console.log('  cantidad:', cantidad);
             
-            const formData = new FormData(this);
             
             // Log FormData entries
             console.log('FormData entries:');
@@ -263,7 +413,8 @@
                 console.log('Respuesta del servidor:', data);
                 if (data.success) {
                     closeAgregarProductoModal();
-                    // No hacer reload aquí, dejar que el socket event maneje la actualización
+                    openMesasActivasPanel();
+                    actualizarPanelMesasActivas();
                 } else {
                     alert(data.message || 'Error al agregar producto');
                 }
@@ -366,15 +517,14 @@
     
     // 4️⃣ Envío de pedido
     function enviarPedido() {
+        if (enviandoPedido || pedido.length === 0) return;
+        enviandoPedido = true;
         const total = document.getElementById('pedidoTotal').textContent;
         socket.emit('nuevo_pedido', { 
             total: total,
             state: 'pendiente',
             productos: pedido
         });
-        pedido = [];
-        actualizarResumenPedido();
-        closePedidoModal();
     }
     </script>
 

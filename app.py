@@ -3,12 +3,13 @@ from collections import defaultdict
 from werkzeug.utils import secure_filename
 import os
 from models import db, Product, Category, Users, ProductVariant, Pedidos, PedidoHistorico, Auditoria, MovimientosCaja
-from flask_socketio import emit
-from datetime import datetime
+from flask_socketio import emit, join_room
+from datetime import datetime, timedelta
 import json
 from __init__ import init_app
 import jinja2
 from sqlalchemy.orm.attributes import flag_modified
+from sales_reporting import rango_ventas, resumir_ventas
 
 app, socketio = init_app()
 app.secret_key = b'_5#y2L"F4Q8z\n\xec]/'
@@ -51,7 +52,7 @@ def generar_folio():
     return f"T-{nuevo_num:06d}"
 
 # Función para registrar auditoría
-def registrar_auditoria(accion, descripcion=None, pedido_id=None):
+def registrar_auditoria(accion, descripcion=None, pedido_id=None, commit=True):
     if 'username' in session:
         usuario = Users.query.filter_by(username=session['username']).first()
         if usuario:
@@ -64,10 +65,11 @@ def registrar_auditoria(accion, descripcion=None, pedido_id=None):
                 pedido_id=pedido_id
             )
             db.session.add(auditoria)
-            db.session.commit()
+            if commit:
+                db.session.commit()
 
 # Función para registrar movimiento de cajaa
-def registrar_movimiento_caja(tipo_movimiento, monto=None, monto_inicial=None, pedido_id=None):
+def registrar_movimiento_caja(tipo_movimiento, monto=None, monto_inicial=None, pedido_id=None, commit=True):
     if 'username' in session:
         movimiento = MovimientosCaja(
             tipo_movimiento=tipo_movimiento,
@@ -77,7 +79,8 @@ def registrar_movimiento_caja(tipo_movimiento, monto=None, monto_inicial=None, p
             pedido_id=pedido_id
         )
         db.session.add(movimiento)
-        db.session.commit()
+        if commit:
+            db.session.commit()
 
 from models import db
 
@@ -155,44 +158,67 @@ def index():
     else:
         return redirect(url_for('login'))
 
+@socketio.on('connect')
+def conectar_notificaciones():
+    if 'username' not in session:
+        return False
+    if session.get('tipo_usuario') == 'cajero':
+        join_room('notificaciones_caja')
+
+
 @socketio.on('nuevo_pedido')
 def pedido_handler(data):
+    if 'username' not in session or session.get('tipo_usuario') not in ('user', 'admin'):
+        emit('pedido_error', {'error': 'No tienes permiso para crear pedidos'})
+        return
     try:
-        print("datosss: ", data)
+        if not isinstance(data, dict) or not isinstance(data.get('productos'), list) or not data['productos']:
+            raise ValueError('El pedido debe contener productos')
+
+        productos = []
+        for item in data['productos']:
+            if not isinstance(item, dict):
+                raise ValueError('Producto inválido')
+            cantidad = item.get('cantidad')
+            if type(cantidad) is not int or cantidad <= 0:
+                raise ValueError('La cantidad debe ser un entero positivo')
+            partes = str(item.get('id', '')).split('_')
+            if len(partes) not in (1, 2) or not all(p.isdigit() for p in partes):
+                raise ValueError('Identificador de producto inválido')
+            producto = db.session.get(Product, int(partes[0]))
+            if not producto:
+                raise ValueError('Producto no encontrado')
+            nombre, precio = producto.name, producto.price
+            if len(partes) == 2:
+                variante = db.session.get(ProductVariant, int(partes[1]))
+                if not variante or variante.product_id != producto.id:
+                    raise ValueError('Variante de producto inválida')
+                nombre, precio = f'{producto.name} {variante.size}', variante.price
+            if producto.category.name.lower() in ('cervezas', 'bebidas'):
+                if producto.stock is None or producto.stock < cantidad:
+                    raise ValueError('No hay stock suficiente para el producto ' + producto.name)
+                producto.stock -= cantidad
+            productos.append({'id': '_'.join(partes), 'nombre': nombre, 'precio': precio, 'cantidad': cantidad})
+
         pedido = Pedidos(
             folio=generar_folio(),
             estado='ABIERTA',
-            total=data['total'],
-            state=data['state'],
+            total=sum(p['precio'] * p['cantidad'] for p in productos),
+            state='pendiente',
             fecha=datetime.now(),
-            products=data[ 'productos'],
+            products=productos,
             usuario_id=session['username']
         )
         db.session.add(pedido)
-        db.session.commit()
+        db.session.flush()
         
         # Registrar auditoría
-        registrar_auditoria('CREAR_PEDIDO', f'Pedido {pedido.folio} creado por {session["username"]}', pedido.id)
+        registrar_auditoria('CREAR_PEDIDO', f'Pedido {pedido.folio} creado por {session["username"]}', pedido.id, commit=False)
+        db.session.commit()
         
         # Emitir evento para actualizar vista del mesero en tiempo real
         socketio.emit('nuevo_pedido_creado', {'id': pedido.id, 'folio': pedido.folio, 'usuario_id': session['username']})
 
-        for item in data['productos']:
-            producto = Product.query.filter_by(name=item['nombre']).first()
-            print("productooooooo: ",producto)
-            if producto: 
-                categoria_nombre = producto.category.name.lower()
-
-                if categoria_nombre in ["cervezas", "bebidas"]:
-                    if producto.stock >= item['cantidad']:
-                        producto.stock -= item['cantidad']
-                    else:
-                        print('No hay stock suficiente para el producto ' + producto.name)
-                        emit('pedido_error', {'error': 'No hay stock suficiente para el producto ' + producto.name})
-                        db.session.rollback()
-                        return
-                
-        db.session.commit()
         emit('pedido_creado', {'id': pedido.id, 'total': pedido.total, 'state': pedido.state, 'fecha': pedido.fecha.strftime('%Y-%m-%d %H:%M:%S')})
     except Exception as e:
         db.session.rollback()
@@ -200,8 +226,11 @@ def pedido_handler(data):
         emit('pedido_error', {'error': str(e)})
 
 @app.route('/guardar_historico', methods=['POST'])
+@role_required('cajero', 'admin')
 def guardar_historico():
-    data = request.get_json()
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or type(data.get('pedido_id')) is not int:
+        return jsonify({'success': False, 'message': 'Pedido inválido'}), 400
 
     # Datos del pedido actual
     pedido_id = data.get('pedido_id')
@@ -211,8 +240,8 @@ def guardar_historico():
         return jsonify({'success': False, 'message': 'Pedido no encontrado'}), 404
     
     # Verificar que el pedido no esté ya cobrado
-    if pedido.estado == 'COBRADA':
-        return jsonify({'success': False, 'message': 'Este pedido ya fue cobrado'}), 400
+    if pedido.estado != 'ENVIADA_A_CAJA':
+        return jsonify({'success': False, 'message': 'Solo se pueden cobrar pedidos enviados a caja'}), 400
     
     # Cambiar estado a COBRADA en lugar de eliminar
     pedido.estado = 'COBRADA'
@@ -228,10 +257,10 @@ def guardar_historico():
     db.session.add(historico)
     
     # Registrar movimiento de caja
-    registrar_movimiento_caja('VENTA', pedido.total, pedido.id)
+    registrar_movimiento_caja('VENTA', monto=pedido.total, pedido_id=pedido.id, commit=False)
     
     # Registrar auditoría
-    registrar_auditoria('COBRAR_PEDIDO', f'Pedido {pedido.folio} cobrado por {session["username"]}', pedido.id)
+    registrar_auditoria('COBRAR_PEDIDO', f'Pedido {pedido.folio} cobrado por {session["username"]}', pedido.id, commit=False)
     
     db.session.commit()
     
@@ -241,19 +270,32 @@ def guardar_historico():
     return jsonify({'success': True, 'message': 'Pedido cobrado y guardado en historial'})
 
 @app.route('/ticket/<int:id>')
+@role_required('cajero', 'admin')
 def ticket(id):
-    pedido = Pedidos.query.get(id)
+    pedido = Pedidos.query.get_or_404(id)
     return render_template('ticket.html', pedido=pedido)
 
 @app.route('/delete_pedido/<int:pedido_id>', methods=['POST'])
+@role_required('user', 'cajero', 'admin')
 def delete_pedido(pedido_id):
     pedido = Pedidos.query.get_or_404(pedido_id)
+
+    if session['tipo_usuario'] == 'user' and pedido.usuario_id != session['username']:
+        return jsonify({'success': False, 'message': 'No puedes cancelar este pedido'}), 403
+    if pedido.estado not in ('ABIERTA', 'ENVIADA_A_CAJA'):
+        return jsonify({'success': False, 'message': 'El pedido ya fue cobrado o cancelado'}), 400
+
+    # Las existencias se reservaron al crear o ampliar el pedido.
+    for item in pedido.products or []:
+        producto = db.session.get(Product, int(str(item['id']).split('_')[0]))
+        if producto and producto.category.name.lower() in ('cervezas', 'bebidas'):
+            producto.stock = (producto.stock or 0) + item['cantidad']
 
     # Cambiar estado a CANCELADA en lugar de eliminar
     pedido.estado = 'CANCELADA'
     
     # Registrar auditoría
-    registrar_auditoria('CANCELAR_PEDIDO', f'Pedido {pedido.folio} cancelado por {session["username"]}', pedido.id)
+    registrar_auditoria('CANCELAR_PEDIDO', f'Pedido {pedido.folio} cancelado por {session["username"]}', pedido.id, commit=False)
     
     db.session.commit()
 
@@ -278,6 +320,7 @@ def login():
     return render_template('login.html')
 
 @app.route('/register', methods=['GET', 'POST'])
+@role_required('admin')
 def register():
     if request.method == 'POST' and session['tipo_usuario'] == 'admin':
         username = request.form['username']
@@ -286,6 +329,7 @@ def register():
         user = Users(username=username, rol=rol)
         user.set_password(password)
         db.session.add(user)
+        registrar_auditoria('CREAR_USUARIO', f'Usuario {username} creado con rol {rol}', commit=False)
         db.session.commit()
         return redirect(request.referrer or url_for('admin'))
     else:
@@ -294,8 +338,50 @@ def register():
 @app.route('/reportes', methods=['GET'])
 @role_required('admin')
 def reportes():
-    reportes = PedidoHistorico.query.all()
-    return render_template('reportes.html', reportes=reportes)
+    hoy = datetime.now().date()
+    error = None
+    try:
+        inicio, fin = rango_ventas(request.args, hoy)
+    except ValueError as exc:
+        error = str(exc)
+        inicio, fin = rango_ventas({}, hoy)
+    comparar = request.args.get('comparar') == '1'
+    limite = inicio - timedelta(days=(fin - inicio).days + 1) if comparar else inicio
+    ventas = [] if error else Pedidos.query.filter(
+        Pedidos.estado == 'COBRADA', Pedidos.fecha_cobro >= datetime.combine(limite, datetime.min.time()),
+        Pedidos.fecha_cobro < datetime.combine(fin + timedelta(days=1), datetime.min.time())
+    ).all()
+    resumen = resumir_ventas(ventas, inicio, fin, comparar)
+    return render_template('reportes.html', resumen=resumen, inicio=inicio, fin=fin, comparar=comparar,
+                           periodo=request.args.get('periodo', 'semana'), error=error,
+                           sin_fecha=Pedidos.query.filter_by(estado='COBRADA', fecha_cobro=None).count())
+
+@app.route('/tickets')
+@role_required('admin')
+def tickets():
+    archivo = request.args.get('archivo') == '1'
+    estado = request.args.get('estado', '')
+    folio = request.args.get('folio', '').strip()
+    consulta = Pedidos.query
+    if estado in ('ABIERTA', 'ENVIADA_A_CAJA', 'COBRADA', 'CANCELADA'):
+        consulta = consulta.filter_by(estado=estado)
+    if folio:
+        consulta = consulta.filter(Pedidos.folio.contains(folio, autoescape=True))
+    pagina = max(request.args.get('pagina', 1, type=int) or 1, 1)
+    resultados = (PedidoHistorico.query.order_by(PedidoHistorico.fecha.desc(), PedidoHistorico.id.desc())
+                  if archivo else consulta.order_by(Pedidos.fecha.desc(), Pedidos.id.desc()))
+    paginacion = resultados.paginate(page=pagina, per_page=30, error_out=False)
+    return render_template('tickets.html', paginacion=paginacion, archivo=archivo, estado=estado, folio=folio)
+
+@app.route('/tickets/archivo/<int:ticket_id>')
+@role_required('admin')
+def ticket_archivo(ticket_id):
+    historico = PedidoHistorico.query.get_or_404(ticket_id)
+    productos = from_json(historico.productos)
+    pedido = dict(id=f'Archivo-{historico.id}', folio=None, fecha=historico.fecha,
+                  products=productos if isinstance(productos, list) else [], total=historico.total or 0,
+                  estado='HISTÓRICO', usuario_id='No registrado')
+    return render_template('ticket.html', pedido=pedido, vista_auditoria=True)
 
 @app.route('/logout', methods=['POST'])
 def logout():
@@ -383,23 +469,94 @@ def cerrar_caja():
 @app.route('/auditoria')
 @role_required('admin')
 def auditoria():
-    registros = Auditoria.query.order_by(Auditoria.fecha_hora.desc()).all()
-    return render_template('auditoria.html', registros=registros)
+    grupos = {
+        'usuarios': ('Usuarios', {
+            'CREAR_USUARIO': 'Creación de usuario', 'EDITAR_USUARIO': 'Edición de usuario',
+            'ELIMINAR_USUARIO': 'Eliminación de usuario'}),
+        'caja': ('Caja', {'ABRIR_CAJA': 'Apertura de caja', 'CERRAR_CAJA': 'Cierre de caja'}),
+        'pedidos': ('Pedidos', {
+            'CREAR_PEDIDO': 'Creación de pedido', 'ENVIAR_CAJA': 'Envío a caja',
+            'COBRAR_PEDIDO': 'Pedido cobrado / cerrado', 'CANCELAR_PEDIDO': 'Pedido cancelado'}),
+        'cambios': ('Cambios en pedidos', {
+            'AGREGAR_PRODUCTO': 'Producto agregado', 'ELIMINAR_PRODUCTO': 'Producto eliminado'}),
+        'sesiones': ('Sesiones', {'CERRAR_SESION': 'Cierre de sesión'})
+    }
+    etiquetas = {clave: nombre for _, acciones in grupos.values() for clave, nombre in acciones.items()}
+    hoy = datetime.now().date().isoformat()
+    filtros = {
+        'accion': request.args.get('accion', '').strip(),
+        'periodo': request.args.get('periodo', 'hoy'),
+        'desde': request.args.get('desde', hoy), 'hasta': request.args.get('hasta', hoy),
+        'usuario': request.args.get('usuario', '').strip(),
+        'folio': request.args.get('folio', '').strip()
+    }
+    consulta = Auditoria.query
+    error = None
+    try:
+        accion = filtros['accion']
+        if accion in grupos:
+            consulta = consulta.filter(Auditoria.accion.in_(grupos[accion][1]))
+        elif accion in etiquetas:
+            consulta = consulta.filter(Auditoria.accion == accion)
+        elif accion:
+            raise ValueError('Selecciona una acción válida.')
+        if filtros['periodo'] == 'hoy':
+            inicio = datetime.fromisoformat(hoy)
+            consulta = consulta.filter(Auditoria.fecha_hora >= inicio,
+                                       Auditoria.fecha_hora < inicio + timedelta(days=1))
+        elif filtros['periodo'] == 'rango':
+            desde = datetime.strptime(filtros['desde'], '%Y-%m-%d') if filtros['desde'] else None
+            hasta = datetime.strptime(filtros['hasta'], '%Y-%m-%d') if filtros['hasta'] else None
+            if not desde and not hasta:
+                raise ValueError('Indica al menos una fecha para el rango.')
+            if desde and hasta and desde > hasta:
+                raise ValueError('La fecha inicial no puede ser posterior a la final.')
+            if desde:
+                consulta = consulta.filter(Auditoria.fecha_hora >= desde)
+            if hasta:
+                consulta = consulta.filter(Auditoria.fecha_hora < hasta + timedelta(days=1))
+        elif filtros['periodo'] != 'todo':
+            raise ValueError('Selecciona un periodo válido.')
+        if filtros['usuario']:
+            consulta = consulta.filter(Auditoria.usuario_nombre == filtros['usuario'])
+        if filtros['folio']:
+            consulta = consulta.filter(Auditoria.pedido.has(Pedidos.folio.contains(filtros['folio'], autoescape=True)))
+    except (ValueError, OverflowError) as exc:
+        error = str(exc) if str(exc).endswith('.') else 'Revisa las fechas del rango.'
+    registros = [] if error else consulta.order_by(Auditoria.fecha_hora.desc(), Auditoria.id.desc()).all()
+    usuarios = [fila[0] for fila in db.session.query(Auditoria.usuario_nombre).distinct().order_by(Auditoria.usuario_nombre).all()]
+    return render_template('auditoria.html', registros=registros, grupos=grupos,
+                           etiquetas=etiquetas, filtros=filtros, usuarios=usuarios, error=error)
+
+@app.route('/auditoria/ticket/<int:pedido_id>')
+@role_required('admin')
+def ticket_auditoria(pedido_id):
+    pedido = Pedidos.query.get_or_404(pedido_id)
+    return render_template('ticket.html', pedido=pedido, vista_auditoria=True)
 
 @app.route('/enviar_caja/<int:pedido_id>', methods=['POST'])
 @role_required('user', 'admin')
 def enviar_caja(pedido_id):
     pedido = Pedidos.query.get_or_404(pedido_id)
+    if session['tipo_usuario'] == 'user' and pedido.usuario_id != session['username']:
+        return jsonify({'success': False, 'message': 'No puedes enviar este pedido a caja'}), 403
     
     if pedido.estado != 'ABIERTA':
+        if request.accept_mimetypes.best == 'application/json':
+            return jsonify({'success': False, 'message': 'Solo se pueden enviar pedidos en estado ABIERTA'}), 400
         flash('Solo se pueden enviar pedidos en estado ABIERTA', 'error')
         return redirect(request.referrer or url_for('index'))
     
     pedido.estado = 'ENVIADA_A_CAJA'
     registrar_auditoria('ENVIAR_CAJA', f'Pedido {pedido.folio} enviado a caja por {session["username"]}', pedido.id)
     db.session.commit()
+
+    socketio.emit('ticket_enviado_caja', {
+        'id': pedido.id, 'folio': pedido.folio, 'usuario_id': pedido.usuario_id
+    }, to='notificaciones_caja')
     
-    flash('Pedido enviado a caja correctamente', 'success')
+    if request.accept_mimetypes.best == 'application/json':
+        return jsonify({'success': True})
     return redirect(request.referrer or url_for('index'))
 
 @app.route('/agregar_producto_pedido/<int:pedido_id>', methods=['POST'])
@@ -412,11 +569,21 @@ def agregar_producto_pedido(pedido_id):
         return jsonify({'success': False, 'message': 'No puedes editar este pedido'}), 403
     
     producto_id = request.form.get('producto_id')
-    cantidad = int(request.form.get('cantidad', 1))
+    try:
+        cantidad = int(request.form.get('cantidad', 1))
+        if cantidad <= 0:
+            raise ValueError
+    except (ValueError, TypeError):
+        return jsonify({'success': False, 'message': 'La cantidad debe ser un entero positivo'}), 400
     
     producto = Product.query.get(producto_id)
     if not producto:
         return jsonify({'success': False, 'message': 'Producto no encontrado'}), 404
+
+    if producto.category.name.lower() in ('cervezas', 'bebidas'):
+        if producto.stock is None or producto.stock < cantidad:
+            return jsonify({'success': False, 'message': 'Stock insuficiente'}), 400
+        producto.stock -= cantidad
     
     # Agregar producto al pedido
     productos_actuales = pedido.products if pedido.products else []
@@ -441,13 +608,6 @@ def agregar_producto_pedido(pedido_id):
     # Marcar el campo products como modificado para que SQLAlchemy lo guarde
     flag_modified(pedido, 'products')
     
-    # Actualizar stock si es bebida/cerveza
-    if producto.category.name.lower() in ["cervezas", "bebidas"]:
-        if producto.stock >= cantidad:
-            producto.stock -= cantidad
-        else:
-            return jsonify({'success': False, 'message': 'Stock insuficiente'}), 400
-    
     db.session.commit()
     
     registrar_auditoria('AGREGAR_PRODUCTO', f'Agregado {cantidad}x {producto.name} al pedido {pedido.folio}', pedido.id)
@@ -464,6 +624,8 @@ def eliminar_producto_pedido(pedido_id):
     
     # Verificar que el pedido pertenezca al usuario y esté ABIERTA
     if pedido.usuario_id != session['username'] or pedido.estado != 'ABIERTA':
+        if request.accept_mimetypes.best == 'application/json':
+            return jsonify({'success': False, 'message': 'No puedes editar este pedido'}), 403
         flash('No puedes editar este pedido', 'error')
         return redirect(request.referrer or url_for('index'))
     
@@ -496,9 +658,12 @@ def eliminar_producto_pedido(pedido_id):
         # Emitir evento para actualizar vista del mesero
         socketio.emit('pedido_actualizado', {'id': pedido.id, 'usuario_id': session['username']})
         
-        flash('Producto eliminado del pedido', 'success')
+        if request.accept_mimetypes.best == 'application/json':
+            return jsonify({'success': True})
         return redirect(request.referrer or url_for('index'))
     else:
+        if request.accept_mimetypes.best == 'application/json':
+            return jsonify({'success': False, 'message': 'Producto no encontrado en el pedido'}), 404
         flash('Producto no encontrado en el pedido', 'error')
         return redirect(request.referrer or url_for('index'))
 
