@@ -10,9 +10,13 @@ from __init__ import init_app
 import jinja2
 from sqlalchemy.orm.attributes import flag_modified
 from sales_reporting import rango_ventas, resumir_ventas
+from functools import wraps
+from decimal import Decimal, InvalidOperation
+from sqlalchemy import text
+from schema_updates import actualizar_esquema
+from catalogo import datos_producto, nombre_valido, variantes_validas, guardar_imagen, borrar_imagen
 
 app, socketio = init_app()
-app.secret_key = b'_5#y2L"F4Q8z\n\xec]/'
 
 # Agregar filtro personalizado para parsear JSON en templates
 def from_json(value):
@@ -22,6 +26,58 @@ def from_json(value):
         return value
 
 app.jinja_env.filters['from_json'] = from_json
+
+
+@app.template_filter('ordenar_tamanos')
+def ordenar_tamanos(variantes):
+    orden = {'chico': 0, 'chica': 0, 'mediano': 1, 'mediana': 1, 'grande': 2}
+    return sorted(variantes, key=lambda variante: orden.get(variante.size.strip().casefold(), 3))
+
+
+def usuario_actual():
+    usuario = Users.query.filter_by(username=session.get('username'), activo=True).first()
+    if not usuario or session.get('version_sesion', 0) != usuario.version_sesion:
+        return None
+    return usuario
+
+
+@app.before_request
+def validar_sesion_actual():
+    if 'username' in session:
+        usuario = usuario_actual()
+        if not usuario:
+            session.clear()
+        else:
+            session['tipo_usuario'] = usuario.rol
+
+
+def escritura_serializada(f):
+    """SQLite: reservar la escritura antes de leer estado, folios o existencias."""
+    @wraps(f)
+    def wrapped(*args, **kwargs):
+        try:
+            db.session.execute(text('BEGIN IMMEDIATE'))
+            resultado = f(*args, **kwargs)
+            db.session.rollback()
+            return resultado
+        except Exception:
+            db.session.rollback()
+            raise
+    return wrapped
+
+
+def apertura_caja_activa(username):
+    ultimo = MovimientosCaja.query.filter(
+        MovimientosCaja.usuario_id == username,
+        MovimientosCaja.tipo_movimiento.in_(('APERTURA', 'CIERRE'))
+    ).order_by(MovimientosCaja.id.desc()).first()
+    return ultimo if ultimo and ultimo.tipo_movimiento == 'APERTURA' else None
+
+
+def desconectar_usuario(usuario_id):
+    conexiones = list(socketio.server.manager.get_participants('/', f'usuario:{usuario_id}'))
+    for sid, _ in conexiones:
+        socketio.server.disconnect(sid, namespace='/')
 
 # Decorador para verificar rol
 def role_required(*allowed_roles):
@@ -64,6 +120,16 @@ def registrar_auditoria(accion, descripcion=None, pedido_id=None, commit=True):
                 descripcion=descripcion,
                 pedido_id=pedido_id
             )
+            if pedido_id:
+                pedido = db.session.get(Pedidos, pedido_id)
+                if pedido:
+                    auditoria.ticket_snapshot = {
+                        'id': pedido.id, 'folio': pedido.folio, 'estado': pedido.estado,
+                        'fecha': pedido.fecha.isoformat(),
+                        'fecha_cobro': pedido.fecha_cobro.isoformat() if pedido.fecha_cobro else None,
+                        'products': json.loads(json.dumps(pedido.products or [])),
+                        'total': pedido.total, 'usuario_id': pedido.usuario_id, 'cajero_id': pedido.cajero_id,
+                    }
             db.session.add(auditoria)
             if commit:
                 db.session.commit()
@@ -88,6 +154,7 @@ db.init_app(app)
 
 with app.app_context():
     db.create_all()
+    actualizar_esquema(db.engine)
 
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
 
@@ -160,15 +227,19 @@ def index():
 
 @socketio.on('connect')
 def conectar_notificaciones():
-    if 'username' not in session:
+    usuario = usuario_actual()
+    if not usuario:
         return False
-    if session.get('tipo_usuario') == 'cajero':
+    join_room(f'usuario:{usuario.id}')
+    if usuario.rol == 'cajero':
         join_room('notificaciones_caja')
 
 
 @socketio.on('nuevo_pedido')
+@escritura_serializada
 def pedido_handler(data):
-    if 'username' not in session or session.get('tipo_usuario') not in ('user', 'admin'):
+    usuario = usuario_actual()
+    if not usuario or usuario.rol not in ('user', 'admin'):
         emit('pedido_error', {'error': 'No tienes permiso para crear pedidos'})
         return
     try:
@@ -194,16 +265,12 @@ def pedido_handler(data):
                 if not variante or variante.product_id != producto.id:
                     raise ValueError('Variante de producto inválida')
                 nombre, precio = f'{producto.name} {variante.size}', variante.price
-            if producto.category.name.lower() in ('cervezas', 'bebidas'):
-                if producto.stock is None or producto.stock < cantidad:
-                    raise ValueError('No hay stock suficiente para el producto ' + producto.name)
-                producto.stock -= cantidad
             productos.append({'id': '_'.join(partes), 'nombre': nombre, 'precio': precio, 'cantidad': cantidad})
 
         pedido = Pedidos(
             folio=generar_folio(),
             estado='ABIERTA',
-            total=sum(p['precio'] * p['cantidad'] for p in productos),
+            total=float(sum((Decimal(str(p['precio'])) * p['cantidad'] for p in productos), Decimal('0'))),
             state='pendiente',
             fecha=datetime.now(),
             products=productos,
@@ -227,6 +294,7 @@ def pedido_handler(data):
 
 @app.route('/guardar_historico', methods=['POST'])
 @role_required('cajero', 'admin')
+@escritura_serializada
 def guardar_historico():
     data = request.get_json(silent=True)
     if not isinstance(data, dict) or type(data.get('pedido_id')) is not int:
@@ -242,19 +310,17 @@ def guardar_historico():
     # Verificar que el pedido no esté ya cobrado
     if pedido.estado != 'ENVIADA_A_CAJA':
         return jsonify({'success': False, 'message': 'Solo se pueden cobrar pedidos enviados a caja'}), 400
+    if not apertura_caja_activa(session['username']):
+        return jsonify({'success': False, 'message': 'Abre la caja antes de cobrar pedidos'}), 400
+    if not pedido.products or not pedido.total or pedido.total <= 0:
+        return jsonify({'success': False, 'message': 'No puedes cobrar una cuenta vacía'}), 400
     
     # Cambiar estado a COBRADA en lugar de eliminar
     pedido.estado = 'COBRADA'
     pedido.fecha_cobro = datetime.now()
     pedido.cajero_id = session['username']
     
-    # Guardar en histórico
-    historico = PedidoHistorico(
-        productos=json.dumps(pedido.products) if pedido.products else "[]",
-        total=pedido.total,
-        fecha=datetime.now()
-    )
-    db.session.add(historico)
+    # Pedidos conserva el ticket cobrado; el archivo antiguo ya no recibe copias.
     
     # Registrar movimiento de caja
     registrar_movimiento_caja('VENTA', monto=pedido.total, pedido_id=pedido.id, commit=False)
@@ -277,6 +343,7 @@ def ticket(id):
 
 @app.route('/delete_pedido/<int:pedido_id>', methods=['POST'])
 @role_required('user', 'cajero', 'admin')
+@escritura_serializada
 def delete_pedido(pedido_id):
     pedido = Pedidos.query.get_or_404(pedido_id)
 
@@ -284,12 +351,6 @@ def delete_pedido(pedido_id):
         return jsonify({'success': False, 'message': 'No puedes cancelar este pedido'}), 403
     if pedido.estado not in ('ABIERTA', 'ENVIADA_A_CAJA'):
         return jsonify({'success': False, 'message': 'El pedido ya fue cobrado o cancelado'}), 400
-
-    # Las existencias se reservaron al crear o ampliar el pedido.
-    for item in pedido.products or []:
-        producto = db.session.get(Product, int(str(item['id']).split('_')[0]))
-        if producto and producto.category.name.lower() in ('cervezas', 'bebidas'):
-            producto.stock = (producto.stock or 0) + item['cantidad']
 
     # Cambiar estado a CANCELADA en lugar de eliminar
     pedido.estado = 'CANCELADA'
@@ -310,10 +371,11 @@ def login():
         username = request.form['username']
         password = request.form['password']
 
-        user = Users.query.filter_by(username=username).first()
+        user = Users.query.filter_by(username=username, activo=True).first()
         if user and user.check_password(password):
             session['username'] = user.username
             session['tipo_usuario'] = user.rol
+            session['version_sesion'] = user.version_sesion
             return redirect(url_for('index'))
         else:
             flash('Usuario o contraseña incorrectos', 'error')
@@ -321,11 +383,18 @@ def login():
 
 @app.route('/register', methods=['GET', 'POST'])
 @role_required('admin')
+@escritura_serializada
 def register():
     if request.method == 'POST' and session['tipo_usuario'] == 'admin':
         username = request.form['username']
         password = request.form['password']
         rol = request.form['rol']
+        if not username.strip() or rol not in ('admin', 'user', 'cajero') or not password:
+            flash('Revisa el usuario, la contraseña y el rol', 'error')
+            return redirect(url_for('admin'))
+        if Users.query.filter_by(username=username).first():
+            flash('El nombre de usuario ya está registrado', 'error')
+            return redirect(url_for('admin'))
         user = Users(username=username, rol=rol)
         user.set_password(password)
         db.session.add(user)
@@ -393,6 +462,7 @@ def logout():
 
 @app.route('/abrir_caja', methods=['POST'])
 @role_required('cajero', 'admin')
+@escritura_serializada
 def abrir_caja():
     # Verificar si ya hay una apertura activa (sin cierre posterior)
     # Usar ID en lugar de fecha porque múltiples movimientos pueden tener la misma fecha
@@ -414,16 +484,24 @@ def abrir_caja():
             flash(f'La caja ya está abierta con monto inicial: ${apertura.monto_inicial}. Debe cerrarla antes de abrirla nuevamente.', 'error')
             return redirect(url_for('index'))
     
-    monto_inicial = request.form.get('monto_inicial')
-    monto_inicial = float(monto_inicial) if monto_inicial else 0.0
+    try:
+        monto = Decimal(request.form.get('monto_inicial') or '0')
+        if not monto.is_finite() or monto < 0:
+            raise ValueError
+        monto_inicial = float(monto.quantize(Decimal('0.01')))
+    except (ValueError, InvalidOperation):
+        flash('El monto inicial debe ser un número válido mayor o igual a cero', 'error')
+        return redirect(url_for('index'))
     
-    registrar_movimiento_caja('APERTURA', monto_inicial=monto_inicial)
-    registrar_auditoria('ABRIR_CAJA', f'Caja abierta por {session["username"]} con monto inicial: ${monto_inicial}')
+    registrar_movimiento_caja('APERTURA', monto_inicial=monto_inicial, commit=False)
+    registrar_auditoria('ABRIR_CAJA', f'Caja abierta por {session["username"]} con monto inicial: ${monto_inicial}', commit=False)
+    db.session.commit()
     flash(f'Caja abierta correctamente. Monto inicial: ${monto_inicial}', 'success')
     return redirect(url_for('index'))
 
 @app.route('/cerrar_caja', methods=['POST'])
 @role_required('cajero', 'admin')
+@escritura_serializada
 def cerrar_caja():
     # Obtener la última apertura de caja que NO tiene cierre posterior
     # Usar ID en lugar de fecha porque múltiples movimientos pueden tener la misma fecha
@@ -456,12 +534,13 @@ def cerrar_caja():
         MovimientosCaja.id > apertura_activa.id
     ).all()
     
-    total_ventas = sum(v.monto for v in ventas if v.monto)
-    monto_inicial = apertura_activa.monto_inicial if apertura_activa.monto_inicial else 0.0
+    total_ventas = sum((Decimal(str(v.monto)) for v in ventas if v.monto), Decimal('0'))
+    monto_inicial = Decimal(str(apertura_activa.monto_inicial or 0))
     total_esperado = monto_inicial + total_ventas
     
-    registrar_movimiento_caja('CIERRE', total_esperado)
-    registrar_auditoria('CERRAR_CAJA', f'Caja cerrada por {session["username"]}. Monto inicial: ${monto_inicial}, Ventas: ${total_ventas}, Total esperado: ${total_esperado}')
+    registrar_movimiento_caja('CIERRE', float(total_esperado), commit=False)
+    registrar_auditoria('CERRAR_CAJA', f'Caja cerrada por {session["username"]}. Monto inicial: ${monto_inicial}, Ventas: ${total_ventas}, Total esperado: ${total_esperado}', commit=False)
+    db.session.commit()
     
     flash(f'Caja cerrada. Monto inicial: ${monto_inicial}, Ventas: ${total_ventas}, Total esperado: ${total_esperado}', 'success')
     return redirect(url_for('index'))
@@ -479,7 +558,10 @@ def auditoria():
             'COBRAR_PEDIDO': 'Pedido cobrado / cerrado', 'CANCELAR_PEDIDO': 'Pedido cancelado'}),
         'cambios': ('Cambios en pedidos', {
             'AGREGAR_PRODUCTO': 'Producto agregado', 'ELIMINAR_PRODUCTO': 'Producto eliminado'}),
-        'sesiones': ('Sesiones', {'CERRAR_SESION': 'Cierre de sesión'})
+        'sesiones': ('Sesiones', {'CERRAR_SESION': 'Cierre de sesión'}),
+        'catalogo': ('Catálogo', {'CREAR_PRODUCTO': 'Creación de producto', 'EDITAR_PRODUCTO': 'Edición de producto',
+                                 'ELIMINAR_PRODUCTO_CATALOGO': 'Eliminación de producto', 'CREAR_CATEGORIA': 'Creación de categoría',
+                                 'ELIMINAR_CATEGORIA': 'Eliminación de categoría'})
     }
     etiquetas = {clave: nombre for _, acciones in grupos.values() for clave, nombre in acciones.items()}
     hoy = datetime.now().date().isoformat()
@@ -534,8 +616,22 @@ def ticket_auditoria(pedido_id):
     pedido = Pedidos.query.get_or_404(pedido_id)
     return render_template('ticket.html', pedido=pedido, vista_auditoria=True)
 
+@app.route('/auditoria/registro/<int:registro_id>/ticket')
+@role_required('admin')
+def ticket_registro_auditoria(registro_id):
+    registro = Auditoria.query.get_or_404(registro_id)
+    if registro.ticket_snapshot:
+        pedido = dict(registro.ticket_snapshot)
+        pedido['fecha'] = datetime.fromisoformat(pedido['fecha'])
+        return render_template('ticket.html', pedido=pedido, vista_auditoria=True,
+                               nota_ticket='Contenido guardado al registrar esta acción.')
+    pedido = Pedidos.query.get_or_404(registro.pedido_id)
+    return render_template('ticket.html', pedido=pedido, vista_auditoria=True,
+                           nota_ticket='Registro anterior sin copia: se muestra el contenido actual del ticket.')
+
 @app.route('/enviar_caja/<int:pedido_id>', methods=['POST'])
 @role_required('user', 'admin')
+@escritura_serializada
 def enviar_caja(pedido_id):
     pedido = Pedidos.query.get_or_404(pedido_id)
     if session['tipo_usuario'] == 'user' and pedido.usuario_id != session['username']:
@@ -546,9 +642,11 @@ def enviar_caja(pedido_id):
             return jsonify({'success': False, 'message': 'Solo se pueden enviar pedidos en estado ABIERTA'}), 400
         flash('Solo se pueden enviar pedidos en estado ABIERTA', 'error')
         return redirect(request.referrer or url_for('index'))
+    if not pedido.products or not pedido.total or pedido.total <= 0:
+        return jsonify({'success': False, 'message': 'Agrega productos antes de enviar la cuenta a caja'}), 400
     
     pedido.estado = 'ENVIADA_A_CAJA'
-    registrar_auditoria('ENVIAR_CAJA', f'Pedido {pedido.folio} enviado a caja por {session["username"]}', pedido.id)
+    registrar_auditoria('ENVIAR_CAJA', f'Pedido {pedido.folio} enviado a caja por {session["username"]}', pedido.id, commit=False)
     db.session.commit()
 
     socketio.emit('ticket_enviado_caja', {
@@ -561,6 +659,7 @@ def enviar_caja(pedido_id):
 
 @app.route('/agregar_producto_pedido/<int:pedido_id>', methods=['POST'])
 @role_required('user', 'admin')
+@escritura_serializada
 def agregar_producto_pedido(pedido_id):
     pedido = Pedidos.query.get_or_404(pedido_id)
     
@@ -576,41 +675,45 @@ def agregar_producto_pedido(pedido_id):
     except (ValueError, TypeError):
         return jsonify({'success': False, 'message': 'La cantidad debe ser un entero positivo'}), 400
     
-    producto = Product.query.get(producto_id)
+    partes = str(producto_id or '').split('_')
+    if len(partes) not in (1, 2) or not all(p.isdigit() for p in partes):
+        return jsonify({'success': False, 'message': 'Selecciona un producto válido'}), 400
+    producto = db.session.get(Product, int(partes[0]))
     if not producto:
         return jsonify({'success': False, 'message': 'Producto no encontrado'}), 404
+    nombre, precio = producto.name, producto.price
+    if len(partes) == 2:
+        variante = db.session.get(ProductVariant, int(partes[1]))
+        if not variante or variante.product_id != producto.id:
+            return jsonify({'success': False, 'message': 'Selecciona un tamaño válido'}), 400
+        nombre, precio = f'{producto.name} {variante.size}', variante.price
 
-    if producto.category.name.lower() in ('cervezas', 'bebidas'):
-        if producto.stock is None or producto.stock < cantidad:
-            return jsonify({'success': False, 'message': 'Stock insuficiente'}), 400
-        producto.stock -= cantidad
     
     # Agregar producto al pedido
     productos_actuales = pedido.products if pedido.products else []
     
     # Verificar si el producto ya está en el pedido (comparar por nombre para evitar problemas con IDs compuestos)
-    producto_existente = next((p for p in productos_actuales if p['nombre'] == producto.name), None)
+    producto_existente = next((p for p in productos_actuales
+                              if str(p['id']) == producto_id and p['precio'] == precio), None)
     
     if producto_existente:
         producto_existente['cantidad'] += cantidad
-        producto_existente['precio'] = producto.price  # Actualizar precio actual
     else:
         productos_actuales.append({
-            'id': str(producto.id),
-            'nombre': producto.name,
-            'precio': producto.price,
+            'id': producto_id,
+            'nombre': nombre,
+            'precio': precio,
             'cantidad': cantidad
         })
     
     pedido.products = productos_actuales
-    pedido.total = sum(p['precio'] * p['cantidad'] for p in productos_actuales)
+    pedido.total = float(sum((Decimal(str(p['precio'])) * p['cantidad'] for p in productos_actuales), Decimal('0')))
     
     # Marcar el campo products como modificado para que SQLAlchemy lo guarde
     flag_modified(pedido, 'products')
     
+    registrar_auditoria('AGREGAR_PRODUCTO', f'Agregado {cantidad}x {nombre} al pedido {pedido.folio}', pedido.id, commit=False)
     db.session.commit()
-    
-    registrar_auditoria('AGREGAR_PRODUCTO', f'Agregado {cantidad}x {producto.name} al pedido {pedido.folio}', pedido.id)
     
     # Emitir evento para actualizar vista del mesero
     socketio.emit('pedido_actualizado', {'id': pedido.id, 'usuario_id': session['username']})
@@ -619,6 +722,7 @@ def agregar_producto_pedido(pedido_id):
 
 @app.route('/eliminar_producto_pedido/<int:pedido_id>', methods=['POST'])
 @role_required('user', 'admin')
+@escritura_serializada
 def eliminar_producto_pedido(pedido_id):
     pedido = Pedidos.query.get_or_404(pedido_id)
     
@@ -634,26 +738,30 @@ def eliminar_producto_pedido(pedido_id):
     productos_actuales = pedido.products if pedido.products else []
     
     # Encontrar y eliminar el producto (comparar por ID que viene del formulario)
-    producto_a_eliminar = next((p for p in productos_actuales if p['id'] == producto_id), None)
+    indice = request.form.get('producto_indice')
+    if indice is not None:
+        try:
+            posicion = int(indice)
+            producto_a_eliminar = productos_actuales[posicion] if 0 <= posicion < len(productos_actuales) else None
+            if producto_a_eliminar and str(producto_a_eliminar['id']) != producto_id:
+                producto_a_eliminar = None
+        except ValueError:
+            producto_a_eliminar = None
+    else:
+        producto_a_eliminar = next((p for p in productos_actuales if str(p['id']) == producto_id), None)
     
     if producto_a_eliminar:
         productos_actuales.remove(producto_a_eliminar)
         
         pedido.products = productos_actuales
-        pedido.total = sum(p['precio'] * p['cantidad'] for p in productos_actuales)
+        pedido.total = float(sum((Decimal(str(p['precio'])) * p['cantidad'] for p in productos_actuales), Decimal('0')))
         
         # Marcar el campo products como modificado para que SQLAlchemy lo guarde
         flag_modified(pedido, 'products')
         
+        
+        registrar_auditoria('ELIMINAR_PRODUCTO', f'Eliminado {producto_a_eliminar["nombre"]} del pedido {pedido.folio}', pedido.id, commit=False)
         db.session.commit()
-        
-        # Devolver stock si es bebida/cerveza
-        producto = Product.query.get(producto_id.split('_')[0])  # Obtener ID base si es ID compuesto
-        if producto and producto.category.name.lower() in ["cervezas", "bebidas"]:
-            producto.stock += producto_a_eliminar['cantidad']
-            db.session.commit()
-        
-        registrar_auditoria('ELIMINAR_PRODUCTO', f'Eliminado {producto_a_eliminar["nombre"]} del pedido {pedido.folio}', pedido.id)
         
         # Emitir evento para actualizar vista del mesero
         socketio.emit('pedido_actualizado', {'id': pedido.id, 'usuario_id': session['username']})
@@ -669,126 +777,102 @@ def eliminar_producto_pedido(pedido_id):
 
 @app.route('/create', methods=['POST'])
 @role_required('admin')
+@escritura_serializada
 def create():
-    name = request.form['name'].strip()
-    categoria_id = int(request.form['categoria'])
-    price = float(request.form['price'])
-    description = request.form['description'].strip()
-    stock = request.form['stock']
-    image = request.files.get('image')
-    image_path = None
-
-    # Validar nombre duplicado (insensible a mayúsculas)
-    existing_product = Product.query.filter(Product.name.ilike(name)).first()
-    if existing_product:
-        flash("El producto ya existe", "error")
-        return redirect(url_for('index'))
-
-    # Validar imagen
-    filename = ''
-    if image and image.filename != '':
-        if not allowed_file(image.filename):
-            flash("Imagen inválida", "error")
-            return redirect(url_for('index'))
-        # Generar nombre del archivo
-        ext = image.filename.rsplit('.', 1)[1].lower()
-        filename = secure_filename(f"{name}.{ext}")
-        image_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        # Si el archivo ya existe, elimínalo para evitar conflictos
-        if image and image.filename != '' and os.path.exists(image_path):
-            os.remove(image_path)
-        # Guardar imagen
-        image.save(image_path)
-
+    imagen = None
     try:
-        # Crear y guardar producto
-        nuevo_producto = Product(
-            name=name,
-            categoria=categoria_id,
-            price=price,
-            description=description,
-            stock=stock,
-            image=filename
-        )
-
-        db.session.add(nuevo_producto)
+        datos = datos_producto(request.form)
+        variantes = variantes_validas(request.form.getlist('size[]'), request.form.getlist('price[]'))
+        imagen = guardar_imagen(request.files.get('image'), app.config['UPLOAD_FOLDER'])
+        producto = Product(**datos, image=imagen or '')
+        db.session.add(producto)
+        db.session.flush()
+        for tamano, precio in variantes:
+            db.session.add(ProductVariant(size=tamano, price=precio, product_id=producto.id))
+        registrar_auditoria('CREAR_PRODUCTO', f'Producto {producto.name} creado', commit=False)
         db.session.commit()
+        flash('Producto creado con éxito', 'success')
+    except Exception as exc:
+        db.session.rollback()
+        if imagen:
+            borrar_imagen(imagen, app.config['UPLOAD_FOLDER'])
+        flash(str(exc) if isinstance(exc, ValueError) else 'No se pudo guardar el producto', 'error')
+    return redirect(request.referrer or url_for('index'))
 
-        sizes = request.form.getlist('size[]')
-        prices = request.form.getlist('price[]')
-
-        size_set = set()
-
-        for size, price in zip(sizes, prices):
-            if size and price:
-                if size in size_set:
-                    flash(f"Tamaño duplicado: '{size}'")
-                size_set.add(size)
-                variante = ProductVariant(size=size, price=float(price), product_id=nuevo_producto.id)
-                db.session.add(variante)
-
-        db.session.commit()
-
-        flash("Producto creado con éxito", "success")
-        return redirect(url_for('index'))
-
-    except Exception as e:
-        # En caso de error, eliminar la imagen guardada
-        if image_path and os.path.exists(image_path):
-            os.remove(image_path)
-        flash("Error al crear el producto", "error")
-        return redirect(request.referrer or url_for('index'))
-
-@app.route('/create_category', methods=['GET', 'POST'])
+@app.route('/create_category', methods=['POST'])
 @role_required('admin')
+@escritura_serializada
 def create_category():
-
-    if request.method == 'POST':
-        name = request.form['name']
-        nuevo_categoria = Category(name=name)
-        existing_category = Category.query.filter(Category.name.ilike(name)).first()
-        if existing_category:
-            flash("La categoría ya existe", "error")
-            return redirect(url_for('index'))
-        db.session.add(nuevo_categoria)
+    try:
+        nombre = nombre_valido(request.form.get('name'))
+        if any(c.name.casefold() == nombre.casefold() for c in Category.query.all()):
+            raise ValueError('La categoría ya existe')
+        db.session.add(Category(name=nombre))
+        registrar_auditoria('CREAR_CATEGORIA', f'Categoría {nombre} creada', commit=False)
         db.session.commit()
-        return redirect(request.referrer or url_for('index'))
+        flash('Categoría creada con éxito', 'success')
+    except Exception as exc:
+        db.session.rollback()
+        flash(str(exc) if isinstance(exc, ValueError) else 'No se pudo guardar la categoría', 'error')
+    return redirect(request.referrer or url_for('index'))
 
-@app.route('/delete_category', methods=['GET', 'POST'])
+@app.route('/delete_category', methods=['POST'])
 @role_required('admin')
+@escritura_serializada
 def delete_category():
-    if request.method == 'POST':
-        categoria_id = request.form['categoria']
-        categoria = Category.query.filter_by(id=categoria_id).first()
-        if categoria:
-            db.session.delete(categoria)
-            db.session.commit()
-            flash("Categoría eliminada con éxito", "success")
-        else:
-            flash("La categoría no existe", "error")
+    try:
+        categoria = db.session.get(Category, int(request.form.get('categoria', '')))
+        if not categoria:
+            raise ValueError('La categoría no existe')
+        if Product.query.filter_by(categoria=categoria.id).first():
+            raise ValueError('La categoría contiene productos; muévelos o elimínalos primero')
+        nombre = categoria.name
+        db.session.delete(categoria)
+        registrar_auditoria('ELIMINAR_CATEGORIA', f'Categoría {nombre} eliminada', commit=False)
+        db.session.commit()
+        flash('Categoría eliminada con éxito', 'success')
+    except Exception as exc:
+        db.session.rollback()
+        flash(str(exc) if isinstance(exc, ValueError) else 'No se pudo eliminar la categoría', 'error')
     return redirect(request.referrer or url_for('index'))
 
 @app.route('/admin', methods=['GET'])
 @role_required('admin')
 def admin():
-    return render_template('admin.html', users=Users.query.all())
+    return render_template('admin.html', users=Users.query.filter_by(activo=True).all())
 
 @app.route('/edit_user/<int:id>', methods=['POST'])
 @role_required('admin')
+@escritura_serializada
 def edit_user(id):
     user = Users.query.get_or_404(id)
 
     if request.method == 'POST':
         new_username = request.form['username']
         new_rol = request.form['rol']
+        if not new_username.strip() or new_rol not in ('admin', 'user', 'cajero'):
+            flash('Revisa el nombre y el rol del usuario', 'error')
+            return redirect(url_for('admin'))
+        if Users.query.filter(Users.username == new_username, Users.id != user.id).first():
+            flash('El nombre de usuario ya está registrado', 'error')
+            return redirect(url_for('admin'))
         
         # Validar que el usuario no cambie su propio rol a algo que no sea admin
         if user.username == session.get('username') and new_rol != 'admin':
             flash('No puedes cambiar tu propio rol a algo diferente de admin', 'error')
             return redirect(request.referrer or url_for('admin'))
         
+        anterior = user.username
+        propio = anterior == session.get('username')
+        # Las referencias al nombre se actualizan juntas dentro de la transacción.
+        db.session.execute(text('PRAGMA defer_foreign_keys = ON'))
+        registrar_auditoria('EDITAR_USUARIO', f'Usuario {anterior} editado por {session["username"]}', commit=False)
+        Pedidos.query.filter_by(usuario_id=anterior).update({'usuario_id': new_username})
+        Pedidos.query.filter_by(cajero_id=anterior).update({'cajero_id': new_username})
+        MovimientosCaja.query.filter_by(usuario_id=anterior).update({'usuario_id': new_username})
         user.username = new_username
         user.rol = new_rol
+        user.version_sesion += 1
         
         # Actualizar contraseña si se proporciona
         password = request.form.get('password')
@@ -796,14 +880,16 @@ def edit_user(id):
             user.set_password(password)
         
         db.session.commit()
-        
-        # Registrar auditoría
-        registrar_auditoria('EDITAR_USUARIO', f'Usuario {user.username} editado por {session["username"]}')
+        if propio:
+            session['username'] = user.username
+            session['version_sesion'] = user.version_sesion
+        desconectar_usuario(user.id)
         
         return redirect(request.referrer or url_for('admin'))
 
 @app.route('/delete_user/<int:id>', methods=['POST'])
 @role_required('admin')
+@escritura_serializada
 def delete_user(id):
     user = Users.query.get_or_404(id)
     
@@ -813,97 +899,110 @@ def delete_user(id):
         return redirect(request.referrer or url_for('admin'))
     
     # Verificar si el usuario tiene pedidos ACTIVOS (solo bloquear si hay pedidos abiertos)
-    pedidos_activos = Pedidos.query.filter_by(usuario_id=user.username, estado='ABIERTA').first()
+    pedidos_activos = Pedidos.query.filter(Pedidos.usuario_id == user.username,
+                                          Pedidos.estado.in_(('ABIERTA', 'ENVIADA_A_CAJA'))).first()
     if pedidos_activos:
         flash('No puedes eliminar un usuario que tiene pedidos activos', 'error')
         return redirect(request.referrer or url_for('admin'))
     
-    # Eliminar referencias al usuario en pedidos históricos para no violar foreign keys
-    Pedidos.query.filter_by(usuario_id=user.username).update({'usuario_id': 'USUARIO_ELIMINADO'})
-    Pedidos.query.filter_by(cajero_id=user.username).update({'cajero_id': None})
-    
-    # Eliminar referencias en movimientos de caja
-    MovimientosCaja.query.filter_by(usuario_id=user.username).update({'usuario_id': 'USUARIO_ELIMINADO'})
+    if apertura_caja_activa(user.username):
+        flash('Cierra la caja del usuario antes de darlo de baja', 'error')
+        return redirect(url_for('admin'))
     
     # Registrar auditoría antes de eliminar
-    registrar_auditoria('ELIMINAR_USUARIO', f'Usuario {user.username} eliminado por {session["username"]}')
+    registrar_auditoria('ELIMINAR_USUARIO', f'Usuario {user.username} dado de baja por {session["username"]}', commit=False)
     
-    db.session.delete(user)
+    user.activo = False
+    user.version_sesion += 1
     db.session.commit()
+    desconectar_usuario(user.id)
     return redirect(request.referrer or url_for('admin'))
 
 @app.route('/edit/<int:id>', methods=['POST'])
 @role_required('admin')
+@escritura_serializada
 def edit(id):
-    product = Product.query.get_or_404(id)
-
-    if request.method == 'POST':
-        product.name = request.form['name']
-        product.categoria = int(request.form['categoria'])
-        product.price = float(request.form['price'])
-        product.description = request.form['description']
-
-        if 'image' in request.files:
-            imagen_file = request.files['image']
-            if imagen_file.filename != '':
-                # Eliminar imagen anterior
-                if product.image:
-                    old_path = os.path.join(app.config['UPLOAD_FOLDER'], product.image)
-                    if os.path.exists(old_path):
-                        os.remove(old_path)
-
-                # Guardar nueva
-                ext = imagen_file.filename.rsplit('.', 1)[1].lower()
-                new_filename = f"{secure_filename(request.form['name'])}.{ext}"
-                imagen_file.save(os.path.join(app.config['UPLOAD_FOLDER'], new_filename))
-                product.image = new_filename
-
-        db.session.commit()
-
-        # Editar o eliminar variantes existentes
-        variant_ids = request.form.getlist('variant_id[]')
-        sizes = request.form.getlist('size[]')
-        prices = request.form.getlist('price[]')
-
-        for vid, size, price in zip(variant_ids, sizes, prices):
-            variant = ProductVariant.query.get(int(vid))
-            if size.strip() == '' or price.strip() == '':
-                db.session.delete(variant)
+    producto = Product.query.get_or_404(id)
+    nueva_imagen = None
+    anterior = producto.image
+    try:
+        datos = datos_producto(request.form, producto.id, producto.stock)
+        ids = request.form.getlist('variant_id[]')
+        tamanos, precios = request.form.getlist('size[]'), request.form.getlist('price[]')
+        if len(ids) != len(tamanos) or len(ids) != len(precios) or len(set(ids)) != len(ids):
+            raise ValueError('Revisa las variantes del producto')
+        cambios, usados = [], set()
+        for identificador, tamano, precio in zip(ids, tamanos, precios):
+            variante = db.session.get(ProductVariant, int(identificador))
+            if not variante or variante.product_id != producto.id:
+                raise ValueError('La variante no pertenece a este producto')
+            if not tamano.strip() and not precio.strip():
+                cambios.append((variante, None))
             else:
-                variant.size = size
-                variant.price = float(price)
-                
-        # Nuevas variantes
-        new_sizes = request.form.getlist('new_size[]')
-        new_prices = request.form.getlist('new_price[]')
-        for size, price in zip(new_sizes, new_prices):
-            if size and price:
-                db.session.add(ProductVariant(size=size, price=float(price), product_id=product.id))
-
+                cambios.append((variante, variantes_validas([tamano], [precio], usados)[0]))
+        enviados = {int(i) for i in ids}
+        for variante in producto.variants:
+            if variante.id not in enviados:
+                clave = variante.size.casefold()
+                if clave in usados:
+                    raise ValueError('No puede haber tamaños duplicados')
+                usados.add(clave)
+        nuevas = variantes_validas(request.form.getlist('new_size[]'), request.form.getlist('new_price[]'), usados)
+        nueva_imagen = guardar_imagen(request.files.get('image'), app.config['UPLOAD_FOLDER'])
+        for campo, valor in datos.items():
+            setattr(producto, campo, valor)
+        if nueva_imagen:
+            producto.image = nueva_imagen
+        for variante, valores in cambios:
+            if valores is None:
+                db.session.delete(variante)
+            else:
+                variante.size, variante.price = valores
+        for tamano, precio in nuevas:
+            db.session.add(ProductVariant(size=tamano, price=precio, product_id=producto.id))
+        registrar_auditoria('EDITAR_PRODUCTO', f'Producto {producto.name} actualizado', commit=False)
         db.session.commit()
-
+    except Exception as exc:
+        db.session.rollback()
+        if nueva_imagen:
+            borrar_imagen(nueva_imagen, app.config['UPLOAD_FOLDER'])
+        flash(str(exc) if isinstance(exc, ValueError) else 'No se pudo actualizar el producto', 'error')
+        return redirect(request.referrer or url_for('index'))
+    if nueva_imagen and anterior and not Product.query.filter_by(image=anterior).first():
+        try:
+            borrar_imagen(anterior, app.config['UPLOAD_FOLDER'])
+        except OSError:
+            app.logger.warning('No se pudo retirar una imagen anterior')
+    flash('Producto actualizado con éxito', 'success')
     return redirect(request.referrer or url_for('index'))
-
 
 @app.route('/delete/<int:id>', methods=['POST'])
 @role_required('admin')
+@escritura_serializada
 def delete(id):
-    product = Product.query.get_or_404(id)
-
-    for variant in product.variants:
-        db.session.delete(variant)
-
-
-    if request.method == 'POST':
-        # Eliminar imagen del sistema si existe
-        if product.image:
-            image_path = os.path.join(app.config['UPLOAD_FOLDER'], product.image)
-            if os.path.exists(image_path):
-                os.remove(image_path)
-    
-        db.session.delete(product)
+    producto = Product.query.get_or_404(id)
+    for pedido in Pedidos.query.filter(Pedidos.estado.in_(('ABIERTA', 'ENVIADA_A_CAJA'))).all():
+        if any(str(p.get('id', '')).split('_')[0] == str(id) for p in pedido.products or []):
+            flash('El producto está en una cuenta pendiente; termina esa cuenta antes de eliminarlo', 'error')
+            return redirect(request.referrer or url_for('index'))
+    imagen, nombre = producto.image, producto.name
+    try:
+        for variante in producto.variants:
+            db.session.delete(variante)
+        db.session.delete(producto)
+        registrar_auditoria('ELIMINAR_PRODUCTO_CATALOGO', f'Producto {nombre} eliminado del catálogo', commit=False)
         db.session.commit()
+    except Exception:
+        db.session.rollback()
+        flash('No se pudo eliminar el producto', 'error')
         return redirect(request.referrer or url_for('index'))
+    if imagen and not Product.query.filter_by(image=imagen).first():
+        try:
+            borrar_imagen(imagen, app.config['UPLOAD_FOLDER'])
+        except OSError:
+            app.logger.warning('No se pudo retirar una imagen del catálogo')
+    flash('Producto eliminado con éxito', 'success')
+    return redirect(request.referrer or url_for('index'))
 
 @app.route('/inventario')
 @role_required('admin')
@@ -918,4 +1017,5 @@ def inventario():
 
 
 if __name__ == '__main__':
-    socketio.run(app, debug=True, host='0.0.0.0', port=5000, allow_unsafe_werkzeug=True)
+    desarrollo = os.environ.get('FLASK_DEBUG') == '1'
+    socketio.run(app, debug=desarrollo, host='0.0.0.0', port=5000, allow_unsafe_werkzeug=True)

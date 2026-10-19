@@ -63,6 +63,7 @@
     <div class="ticket-contenido">
     <h2>MARISQUERIA LA FLOR DEL PUERTO</h2>
     <h3>Ticket {{ pedido.folio or pedido.id }}</h3>
+    {% if nota_ticket %}<p>{{ nota_ticket }}</p>{% endif %}
     <p>Fecha: {{ pedido.fecha.strftime('%d/%m/%Y %H:%M') }}</p>
     {% if vista_auditoria %}
     <p>Estado: {{ pedido.estado }}<br>Mesero: {{ pedido.usuario_id }}</p>

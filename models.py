@@ -30,6 +30,8 @@ class Users(db.Model):
     username = db.Column(db.String(80), nullable=False)
     password = db.Column(db.String(80), nullable=False)
     rol = db.Column(db.String(80), nullable=False)
+    activo = db.Column(db.Boolean, nullable=False, default=True)
+    version_sesion = db.Column(db.Integer, nullable=False, default=0)
 
     def set_password(self, password):
         self.password = generate_password_hash(password)
@@ -66,6 +68,7 @@ class Auditoria(db.Model):
     fecha_hora = db.Column(db.DateTime, default=datetime.now)
     pedido_id = db.Column(db.Integer, db.ForeignKey('pedidos.id'), nullable=True)
     pedido = db.relationship('Pedidos', lazy='joined')
+    ticket_snapshot = db.Column(db.JSON, nullable=True)
 
 class MovimientosCaja(db.Model):
     id = db.Column(db.Integer, primary_key=True)

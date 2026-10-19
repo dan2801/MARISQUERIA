@@ -18,7 +18,6 @@
         <nav class="nav__menu not-active">
             <a href="{{ url_for('index') }}" class="nav-link">Home</a>
             {% if session.get('tipo_usuario') == 'admin' %}
-                <a href="{{ url_for('inventario') }}" class="nav-link">Inventario</a>
                 <a href="{{ url_for('admin') }}" class="nav-link">Administrar Usuarios</a>
                 <a href="{{ url_for('reportes') }}" class="nav-link">Reportes de ventas</a>
                 <a href="{{ url_for('tickets') }}" class="nav-link">Tickets</a>

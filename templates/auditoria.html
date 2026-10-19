@@ -82,8 +82,8 @@
                         {% endif %}
                     </td>
                     <td>
-                        {% if registro.pedido %}
-                            <a class="auditoria-ver-ticket" href="{{ url_for('ticket_auditoria', pedido_id=registro.pedido_id) }}" target="_blank" rel="noopener">Ver ticket</a>
+                        {% if registro.pedido or registro.ticket_snapshot %}
+                            <a class="auditoria-ver-ticket" href="{{ url_for('ticket_registro_auditoria', registro_id=registro.id) }}" target="_blank" rel="noopener">Ver ticket</a>
                         {% else %}
                             -
                         {% endif %}

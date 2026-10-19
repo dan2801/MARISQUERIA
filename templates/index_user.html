@@ -47,7 +47,13 @@
                         {% for categoria, productos in cat.items() %}
                             <optgroup label="{{ categoria }}">
                                 {% for product in productos %}
-                                    <option value="{{ product.id }}">{{ product.name }} - ${{ product.price }}</option>
+                                    {% if product.variants %}
+                                        {% for variant in product.variants|ordenar_tamanos %}
+                                        <option value="{{ product.id }}_{{ variant.id }}">{{ product.name }} · {{ variant.size }} - ${{ '%.2f'|format(variant.price) }}</option>
+                                        {% endfor %}
+                                    {% else %}
+                                        <option value="{{ product.id }}">{{ product.name }} - ${{ '%.2f'|format(product.price) }}</option>
+                                    {% endif %}
                                 {% endfor %}
                             </optgroup>
                         {% endfor %}
@@ -87,6 +93,7 @@
                               data-titulo="Eliminar producto" data-boton="Sí, eliminar"
                               onsubmit="return confirmarFormularioMesa(this)">
                             <input type="hidden" name="producto_id" value="{{ producto.id }}">
+                            <input type="hidden" name="producto_indice" value="{{ loop.index0 }}">
                             <button type="submit" class="btn-panel" aria-label="Eliminar producto" title="Eliminar producto">❌</button>
                         </form>
                         {% endif %}
@@ -120,7 +127,7 @@
 
     <div id="{{ categoria|replace(' ', '_') }}" class="productos" style="display: none;">
         {% for product in productos %}
-            <div class="product">
+            <div class="product producto-mesero {% if product.variants %}producto-mesero--variantes{% endif %}">
                 <div class="image_container">
                 {% if product.image %}
                     <img src="{{ url_for('static', filename='uploads/' + product.image) }}" alt="{{ product.name }}" loading="lazy">
@@ -132,26 +139,22 @@
                         <h3>{{ product.name }}</h3>
                         <p>{{ product.description }}</p>
 
-                        {% for variant in product.variants %}
-                            <p>
-                                {{ variant.size }} - <strong>MXN ${{ variant.price }}</strong>
-                                <button 
-                                    class="btn-minus" 
-                                    data-id="{{ product.id }}_{{ variant.id }}"
-                                    data-nombre="{{ product.name }} {{ variant.size }}"
-                                    data-precio="{{ variant.price }}"
-                                    data-cantidad="1">-</button>
-
-                                <button 
-                                    class="btn-plus" 
-                                    data-id="{{ product.id }}_{{ variant.id }}"
-                                    data-nombre="{{ product.name }} {{ variant.size }}"
-                                    data-precio="{{ variant.price }}"
-                                    data-cantidad="1">+</button>
-                            </p>
+                    </div>
+                    {% if product.variants %}
+                    <div class="tamanos-producto" aria-label="Tamaños de {{ product.name }}">
+                        <p class="tamanos-producto__ayuda">Elige las cantidades por tamaño</p>
+                        {% for variant in product.variants|ordenar_tamanos %}
+                        <div class="tamano-producto" data-cantidad-producto="{{ product.id }}_{{ variant.id }}">
+                            <div class="tamano-producto__datos"><strong>{{ variant.size }}</strong><span>${{ '%.2f'|format(variant.price) }} MXN</span></div>
+                            <div class="tamano-producto__cantidad">
+                                <button type="button" class="btn-minus" data-id="{{ product.id }}_{{ variant.id }}" data-nombre="{{ product.name }} {{ variant.size }}" data-precio="{{ variant.price }}" data-cantidad="1" aria-label="Quitar uno: {{ product.name }}, {{ variant.size }}" disabled>−</button>
+                                <input type="number" id="quantity-{{ product.id }}_{{ variant.id }}" class="cantidad-tamano" value="0" min="0" step="1" inputmode="numeric" data-id="{{ product.id }}_{{ variant.id }}" data-nombre="{{ product.name }} {{ variant.size }}" data-precio="{{ variant.price }}" aria-label="Cantidad de {{ product.name }}, {{ variant.size }}">
+                                <button type="button" class="btn-plus" data-id="{{ product.id }}_{{ variant.id }}" data-nombre="{{ product.name }} {{ variant.size }}" data-precio="{{ variant.price }}" data-cantidad="1" aria-label="Agregar uno: {{ product.name }}, {{ variant.size }}">+</button>
+                            </div>
+                        </div>
                         {% endfor %}
                     </div>
-
+                    {% else %}
                     <div class="right-side_container">
                         <p class="price">MXN ${{ product.price }}</p>
                         {% if session['tipo_usuario'] == 'user' %}
@@ -179,6 +182,7 @@
                         </div>
                         {% endif %}
                     </div>
+                    {% endif %}
                 </div>
             </div>
         {% endfor %}
@@ -306,7 +310,6 @@
             pedido = [];
             actualizarResumenPedido();
             closePedidoModal();
-            document.querySelectorAll('[id^="quantity-"]').forEach(span => span.textContent = '0');
             openMesasActivasPanel();
             actualizarPanelMesasActivas();
         }
@@ -462,15 +465,38 @@
     });
     
     function actualizarQuantity(id, delta) {
-        const span = document.getElementById('quantity-' + id.split('_')[0]);
-        if (!span) return;
-        let q = parseInt(span.textContent) + delta;
-        if (q < 0) q = 0;
-        span.textContent = q;
+        const control = document.getElementById('quantity-' + id);
+        const cantidad = pedido.find(p => p.id === id)?.cantidad || 0;
+        if (control) {
+            if (control.matches('input')) control.value = cantidad;
+            else control.textContent = cantidad;
+        }
+        document.querySelectorAll('[data-cantidad-producto]').forEach(fila => {
+            if (fila.dataset.cantidadProducto !== id) return;
+            fila.classList.toggle('tamano-producto--seleccionado', cantidad > 0);
+            fila.querySelector('.btn-minus').disabled = cantidad === 0;
+        });
     }
+
+    document.addEventListener('change', function(e) {
+        if (!e.target.matches('.cantidad-tamano')) return;
+        const control = e.target;
+        const cantidad = Number(control.value);
+        if (enviandoPedido || !Number.isSafeInteger(cantidad) || cantidad < 0) {
+            actualizarQuantity(control.dataset.id);
+            return;
+        }
+        const existente = pedido.find(p => p.id === control.dataset.id);
+        if (cantidad === 0) pedido = pedido.filter(p => p.id !== control.dataset.id);
+        else if (existente) existente.cantidad = cantidad;
+        else pedido.push({id: control.dataset.id, nombre: control.dataset.nombre, precio: Number(control.dataset.precio), cantidad});
+        actualizarResumenPedido();
+        if (cantidad > 0) openPedidoModal();
+    });
     
     // 2️⃣ Lógica del pedido
     function agregarAlPedido(producto) {
+        if (enviandoPedido) return;
         const existente = pedido.find(p => p.id === producto.id);
         if (existente) {
             existente.cantidad += producto.cantidad;
@@ -481,6 +507,7 @@
     }
     
     function eliminarAlPedido(producto) {
+        if (enviandoPedido) return;
         const existente = pedido.find(p => p.id === producto.id);
         if (existente) {
             existente.cantidad -= producto.cantidad;
@@ -499,20 +526,23 @@
     
         pedido.forEach(p => {
             const item = document.createElement('li');
-            item.innerHTML = `${p.nombre} x${p.cantidad} - MXN $${(p.cantidad * p.precio).toFixed(2)}<br>`;
+            item.textContent = `${p.nombre} x${p.cantidad} - MXN $${(p.cantidad * p.precio).toFixed(2)}`;
             lista.appendChild(item);
             total += p.cantidad * p.precio;
         });
     
         totalSpan.textContent = total.toFixed(2);
+        document.querySelectorAll('[id^="quantity-"]').forEach(control => actualizarQuantity(control.id.slice(9)));
     }
     
     // 3️⃣ Modal
     function openPedidoModal() {
         document.getElementById('pedidoModal').classList.add('show');
+        document.body.classList.add('pedido-mesero-visible');
     }
     function closePedidoModal() {
         document.getElementById('pedidoModal').classList.remove('show');
+        document.body.classList.remove('pedido-mesero-visible');
     }
     
     // 4️⃣ Envío de pedido

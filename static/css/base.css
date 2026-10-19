@@ -229,6 +229,49 @@ body {
 .tickets-pestanas [aria-current="page"] { background: #4b3621; color: white; }
 .ventas-error { padding: 16px; border: 1px solid #b42318; border-radius: 10px; color: #b42318; }
 
+.catalogo-variantes { padding: 12px; margin: 16px 0; border: 1px solid #d9c4b3; border-radius: 10px; }
+.catalogo-variante-fila { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.catalogo-variante-fila input { flex: 1 1 100px; min-width: 0; width: 100%; }
+
+.producto-mesero--variantes { flex-wrap: wrap; align-content: flex-start; gap: 12px; }
+.producto-mesero--variantes > .image_container { margin-right: 0; }
+.producto-mesero--variantes > .text_container { flex: 1 1 240px; min-width: 0; gap: 12px; }
+.tamanos-producto { display: grid; gap: 10px; width: 100%; }
+.tamanos-producto .tamanos-producto__ayuda { font-size: 0.82rem; margin: 2px 0; line-height: 1.5; }
+.tamano-producto {
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+    gap: 10px; padding: 12px; border: 1px solid #d9c4b3; border-radius: 12px;
+    background: #fffaf6; transition: background-color 0.15s, border-color 0.15s;
+}
+.tamano-producto--seleccionado { background: #e9d7c8; border-color: #7b5736; }
+.tamano-producto__datos { display: flex; flex-direction: column; gap: 5px; flex: 1 1 90px; }
+.tamano-producto__datos strong { font-size: 1rem; text-transform: capitalize; overflow-wrap: anywhere; }
+.tamano-producto__datos span { font-size: 0.85rem; }
+.tamano-producto__cantidad { display: flex; align-items: center; gap: 8px; }
+.tamano-producto__cantidad button {
+    width: 46px; height: 46px; flex-shrink: 0; border-radius: 10px;
+    font: inherit; font-size: 1.5rem; font-weight: 600; touch-action: manipulation;
+}
+.tamano-producto__cantidad .btn-plus { background: #4b3621; color: white; }
+.tamano-producto__cantidad .btn-minus { background: #f3e5dc; border: 1px solid #b99a7e; color: #4b3621; }
+.tamano-producto__cantidad button:hover { transform: none; filter: brightness(0.93); }
+.tamano-producto__cantidad button:disabled { opacity: 0.35; cursor: default; }
+.tamano-producto__cantidad .cantidad-tamano {
+    width: 54px; height: 46px; padding: 4px; border: 1px solid #b99a7e; border-radius: 8px;
+    background: #fffaf6; color: #4b3621; font: inherit; font-size: 1.1rem; font-weight: 700;
+    text-align: center; appearance: textfield; margin: 0;
+}
+.cantidad-tamano::-webkit-inner-spin-button, .cantidad-tamano::-webkit-outer-spin-button { appearance: none; margin: 0; }
+.tamano-producto__cantidad :focus-visible { outline: 3px solid #a47443; outline-offset: 2px; }
+.pedido-mesero-visible .categorias { padding-bottom: 230px; }
+#pedidoModal .modal-content-delivery { max-height: 220px; gap: 16px; align-items: center; padding-right: 48px; }
+#pedidoLista { max-height: 110px; overflow-y: auto; margin: 8px 0; line-height: 1.6; }
+@media (max-width: 450px) {
+    .producto-mesero--variantes > .text_container { flex-basis: 100%; }
+    #pedidoModal .modal-content-delivery { flex-wrap: wrap; }
+    #pedidoModal .btn-send { margin: 0; }
+}
+
 /* NAV SECTION */
 header {
     display: flex;
