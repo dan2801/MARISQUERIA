@@ -27,6 +27,94 @@ from sales_reporting import resumir_ventas
 
 
 class PedidosTests(unittest.TestCase):
+    def test_pago_mixto_se_guarda_una_vez_y_cuadra_corte(self):
+        pedido = self.pedido()
+        self.sesion('cajero', 'cajero')
+        self.cliente.post('/abrir_caja', data={'monto_inicial': '100'})
+        datos = {'pedido_id': pedido.id, 'metodo_pago': 'MIXTO', 'monto_efectivo': '15.25'}
+        for _ in range(2):
+            respuesta = self.cliente.post('/guardar_historico', json=datos,
+                headers={'Idempotency-Key': 'mixto-1234567890123456789012345678'})
+            self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(pedido.monto_efectivo, 15.25)
+        self.assertEqual(pedido.monto_transferencia, 24.75)
+        venta = MovimientosCaja.query.filter_by(tipo_movimiento='VENTA').one()
+        self.assertEqual(venta.monto, 40)
+        self.assertEqual(venta.monto_efectivo, 15.25)
+        self.assertEqual(venta.monto_transferencia, 24.75)
+        self.cliente.post('/cerrar_caja', data={'efectivo_declarado': '115.25'})
+        corte = MovimientosCaja.query.filter_by(tipo_movimiento='CIERRE').one()
+        self.assertEqual(corte.monto, 115.25)
+        self.assertEqual(corte.diferencia, 0)
+        self.assertEqual(corte.resumen_corte['transferencias'], 24.75)
+        self.assertEqual(corte.resumen_corte['ventas'], 40)
+
+    def test_pago_mixto_rechaza_importes_incorrectos_sin_cobrar(self):
+        pedido = self.pedido()
+        self.sesion('cajero', 'cajero')
+        self.cliente.post('/abrir_caja', data={'monto_inicial': '0'})
+        for monto in (None, '', '0', '-1', '40', '41', 'NaN', 'Infinity', 'abc', '15.251'):
+            respuesta = self.cliente.post('/guardar_historico', json={
+                'pedido_id': pedido.id, 'metodo_pago': 'MIXTO', 'monto_efectivo': monto})
+            self.assertEqual(respuesta.status_code, 400, monto)
+            self.assertEqual(pedido.estado, 'ENVIADA_A_CAJA')
+        self.assertEqual(MovimientosCaja.query.filter_by(tipo_movimiento='VENTA').count(), 0)
+
+    def test_corte_ciego_separa_transferencias_y_reserva_resumen_admin(self):
+        self.sesion('cajero', 'cajero')
+        self.cliente.post('/abrir_caja', data={'monto_inicial': '100'})
+        for metodo in ('EFECTIVO', 'TRANSFERENCIA'):
+            pedido = Pedidos(folio='T-' + metodo, estado='ENVIADA_A_CAJA', total=40, usuario_id='mesero', products=[{'nombre': 'Agua', 'precio': 20, 'cantidad': 2}])
+            db.session.add(pedido)
+            db.session.commit()
+            respuesta = self.cliente.post('/guardar_historico',
+                json={'pedido_id': pedido.id, 'metodo_pago': metodo})
+            self.assertEqual(respuesta.status_code, 200)
+            self.assertEqual(pedido.metodo_pago, metodo)
+        ventas = MovimientosCaja.query.filter_by(tipo_movimiento='VENTA').all()
+        efectivo = sum(v.monto for v in ventas if v.metodo_pago == 'EFECTIVO')
+        transferencias = sum(v.monto for v in ventas if v.metodo_pago == 'TRANSFERENCIA')
+        respuesta = self.cliente.post('/cerrar_caja', data={'efectivo_declarado': '95'}, follow_redirects=True)
+        html = respuesta.get_data(as_text=True)
+        self.assertIn('Corte registrado', html)
+        self.assertNotIn('Total esperado', html)
+        self.assertNotIn('diferencia:', html.lower())
+        corte = MovimientosCaja.query.filter_by(tipo_movimiento='CIERRE').one()
+        self.assertEqual(corte.monto, 100 + efectivo)
+        self.assertEqual(corte.efectivo_declarado, 95)
+        self.assertEqual(corte.diferencia, 95 - 100 - efectivo)
+        self.assertEqual(corte.resumen_corte['transferencias'], transferencias)
+        self.assertEqual(self.cliente.get('/cortes').status_code, 403)
+        self.assertEqual(self.cliente.get('/auditoria').status_code, 403)
+        self.sesion('admin', 'admin')
+        respuesta = self.cliente.get('/cortes')
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertIn('Efectivo esperado', respuesta.get_data(as_text=True))
+
+    def test_corte_requiere_conteo_valido_y_no_duplica_cierre(self):
+        self.sesion('cajero', 'cajero')
+        self.cliente.post('/abrir_caja', data={'monto_inicial': '100'})
+        for valor in ('', '-1', 'NaN', 'Infinity', 'abc', '1000000000'):
+            self.cliente.post('/cerrar_caja', data={'efectivo_declarado': valor})
+            self.assertEqual(MovimientosCaja.query.filter_by(tipo_movimiento='CIERRE').count(), 0)
+        for _ in range(2):
+            self.cliente.post('/cerrar_caja', data={'efectivo_declarado': '0'})
+        self.assertEqual(MovimientosCaja.query.filter_by(tipo_movimiento='CIERRE').count(), 1)
+
+    def test_pago_invalido_no_cobra_y_reintento_transferencia_no_duplica(self):
+        pedido = self.pedido()
+        self.sesion('cajero', 'cajero')
+        self.cliente.post('/abrir_caja', data={'monto_inicial': '0'})
+        respuesta = self.cliente.post('/guardar_historico', json={'pedido_id': pedido.id, 'metodo_pago': 'OTRO'})
+        self.assertEqual(respuesta.status_code, 400)
+        self.assertEqual(pedido.estado, 'ENVIADA_A_CAJA')
+        for _ in range(2):
+            respuesta = self.cliente.post('/guardar_historico',
+                json={'pedido_id': pedido.id, 'metodo_pago': 'TRANSFERENCIA'},
+                headers={'Idempotency-Key': 'corte-transferencia-12345678901234'})
+            self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(MovimientosCaja.query.filter_by(tipo_movimiento='VENTA').count(), 1)
+
     def test_error_al_guardar_no_deja_operacion_confirmada(self):
         pedido = self.pedido('ABIERTA')
         self.sesion()
@@ -614,7 +702,7 @@ class PedidosTests(unittest.TestCase):
         self.assertEqual(MovimientosCaja.query.filter_by(tipo_movimiento='VENTA').count(), 0)
         self.assertEqual(Auditoria.query.filter_by(accion='CANCELAR_PEDIDO', pedido_id=pedido.id).count(), 1)
         self.assertEqual(self.cliente.post('/guardar_historico', json={'pedido_id': pedido.id}).status_code, 400)
-        self.cliente.post('/cerrar_caja')
+        self.cliente.post('/cerrar_caja', data={'efectivo_declarado': '100'})
         self.assertEqual(MovimientosCaja.query.filter_by(tipo_movimiento='CIERRE').one().monto, 100)
         self.assertEqual(self.cliente.get('/').get_data(as_text=True).count('onclick="cancelarPedidoCaja('), 0)
 
@@ -730,7 +818,7 @@ class PedidosTests(unittest.TestCase):
         for abrir in (False, True):
             if abrir:
                 self.cliente.post('/abrir_caja', data={'monto_inicial': '100'})
-                self.cliente.post('/cerrar_caja')
+                self.cliente.post('/cerrar_caja', data={'efectivo_declarado': '100'})
             respuesta = self.cliente.post('/guardar_historico', json={'pedido_id': pedido.id})
             self.assertEqual(respuesta.status_code, 400)
             self.assertEqual(pedido.estado, 'ENVIADA_A_CAJA')

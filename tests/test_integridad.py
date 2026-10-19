@@ -98,7 +98,8 @@ class IntegridadTests(unittest.TestCase):
         def ejecutar(ruta):
             cliente = self.cliente('cajero', 'cajero')
             barrera.wait(timeout=5)
-            return cliente.post(ruta, json={'pedido_id': pedido_id}).status_code
+            return (cliente.post(ruta, data={'efectivo_declarado': '100'}) if ruta == '/cerrar_caja'
+                    else cliente.post(ruta, json={'pedido_id': pedido_id})).status_code
         with ThreadPoolExecutor(max_workers=2) as ejecutor:
             return list(ejecutor.map(ejecutar, rutas))
 

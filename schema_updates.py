@@ -10,8 +10,10 @@ def actualizar_esquema(engine):
     cambios = {
         'users': {'activo': 'BOOLEAN NOT NULL DEFAULT 1', 'version_sesion': 'INTEGER NOT NULL DEFAULT 0'},
         'auditoria': {'ticket_snapshot': 'JSON'},
-        'pedidos': {'solicitud_id': 'VARCHAR(64)'},
+        'pedidos': {'solicitud_id': 'VARCHAR(64)', 'metodo_pago': 'VARCHAR(20)', 'monto_efectivo': 'FLOAT', 'monto_transferencia': 'FLOAT'},
+        'movimientos_caja': {'metodo_pago': 'VARCHAR(20)', 'monto_efectivo': 'FLOAT', 'monto_transferencia': 'FLOAT', 'efectivo_declarado': 'FLOAT', 'diferencia': 'FLOAT', 'resumen_corte': 'JSON'},
     }
+    cambios = {tabla: columnas for tabla, columnas in cambios.items() if inspect(engine).has_table(tabla)}
     with engine.connect() as conexion:
         pendientes = any(set(columnas) - {c['name'] for c in inspect(conexion).get_columns(tabla)}
                          for tabla, columnas in cambios.items())

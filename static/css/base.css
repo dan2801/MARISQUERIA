@@ -1282,3 +1282,18 @@ tr:nth-child(odd) {
         justify-content: center;
     }
 }
+
+/* Turno discreto y selecci?n de pago dentro de la confirmaci?n. */
+.turno-caja {display:flex;align-items:center;justify-content:space-between;gap:16px;margin:20px 0;padding:18px;background:#ead7c8;border:1px solid #cdb59f;border-radius:16px;flex-wrap:wrap}
+.turno-caja p {font-size:.85rem;margin-top:6px}
+.metodos-pago {border:0;margin:18px 0;display:flex;gap:12px;flex-wrap:wrap}
+.metodos-pago[hidden] {display:none}
+.metodos-pago legend {font-size:.85rem;margin-bottom:8px}
+.metodos-pago label {display:flex;align-items:center;gap:8px;padding:12px;border:1px solid #cdb59f;border-radius:10px;cursor:pointer}
+.metodos-pago input {width:auto;accent-color:#4b3621}
+#pagoMixtoCaja {margin:12px 0 20px}
+#efectivoMixtoCaja {width:100%;padding:12px;margin:8px 0;border:1px solid #cdb59f;border-radius:10px;font:inherit;background:#fffaf6;color:#4b3621}
+#modal-abrir-caja input, #modal-cerrar-caja input {width:100%;font:inherit;font-size:1.3rem;padding:14px;border:1px solid #cdb59f;border-radius:10px;margin:12px 0;background:#fffaf6;color:#4b3621}
+.cortes-tabla {overflow-x:auto;margin:24px 0}
+.cortes-tabla table {width:100%;border-collapse:collapse;background:#fffaf6}
+.cortes-tabla th,.cortes-tabla td {padding:12px;border-bottom:1px solid #cdb59f;text-align:left;white-space:nowrap}

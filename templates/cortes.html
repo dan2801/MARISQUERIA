@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Cortes de caja</h2>
+<div class="cortes-tabla"><table>
+<thead><tr><th>Fecha / cajero</th><th>Fondo inicial</th><th>Ventas efectivo</th><th>Transferencias</th><th>Ventas totales</th><th>Efectivo esperado</th><th>Efectivo contado</th><th>Diferencia</th></tr></thead>
+<tbody>{% for corte in registros.items %}<tr>
+<td>{{ corte.fecha_hora.strftime('%d/%m/%Y %H:%M') }} &middot; {{ corte.usuario_id }}</td>
+{% if corte.resumen_corte %}{% for clave in ['fondo','efectivo','transferencias','ventas','esperado','declaracion','diferencia'] %}
+<td>${{ '%.2f'|format(corte.resumen_corte[clave]) }}</td>{% endfor %}
+{% else %}<td colspan="7">Corte anterior sin desglose de forma de pago.</td>{% endif %}
+</tr>{% else %}<tr><td colspan="8">No hay cortes registrados.</td></tr>{% endfor %}</tbody>
+</table></div>
+{% if registros.has_prev %}<a href="{{ url_for('cortes', pagina=registros.prev_num) }}">Anterior</a>{% endif %}
+{% if registros.has_next %}<a href="{{ url_for('cortes', pagina=registros.next_num) }}">Siguiente</a>{% endif %}
+{% endblock %}

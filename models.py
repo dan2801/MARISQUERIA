@@ -51,6 +51,9 @@ class Pedidos(db.Model):
     products = db.Column(db.JSON)
     total = db.Column(db.Float)
     usuario_id = db.Column(db.String(80), db.ForeignKey('users.username'), nullable=False)
+    metodo_pago = db.Column(db.String(20), nullable=True)
+    monto_efectivo = db.Column(db.Float, nullable=True)
+    monto_transferencia = db.Column(db.Float, nullable=True)
     cajero_id = db.Column(db.String(80), db.ForeignKey('users.username'), nullable=True)
 
 class PedidoHistorico(db.Model):
@@ -72,6 +75,12 @@ class Auditoria(db.Model):
     ticket_snapshot = db.Column(db.JSON, nullable=True)
 
 class MovimientosCaja(db.Model):
+    metodo_pago = db.Column(db.String(20), nullable=True)
+    monto_efectivo = db.Column(db.Float, nullable=True)
+    monto_transferencia = db.Column(db.Float, nullable=True)
+    efectivo_declarado = db.Column(db.Float, nullable=True)
+    diferencia = db.Column(db.Float, nullable=True)
+    resumen_corte = db.Column(db.JSON, nullable=True)
     id = db.Column(db.Integer, primary_key=True)
     tipo_movimiento = db.Column(db.String(50), nullable=False)  # APERTURA, VENTA, CIERRE
     monto = db.Column(db.Float, nullable=True)

@@ -25,15 +25,10 @@
                 <a href="{{ url_for('admin') }}" class="nav-link">Administrar Usuarios</a>
                 <a href="{{ url_for('reportes') }}" class="nav-link">Reportes de ventas</a>
                 <a href="{{ url_for('tickets') }}" class="nav-link">Tickets</a>
+                <a href="{{ url_for('cortes') }}" class="nav-link">Cortes de caja</a>
                 <a href="{{ url_for('auditoria') }}" class="nav-link">Auditoría</a>
             {% elif session.get('tipo_usuario') == 'cajero' %}
                 <a href="{{ url_for('index') }}" class="nav-link">Pedidos Activos</a>
-                {% if caja_abierta %}
-                    <span class="nav-link" style="color: #4CAF50;">✓ Caja Abierta (${{ monto_inicial }})</span>
-                    <button onclick="openModalCerrarCaja()" class="nav-link">Cerrar Caja</button>
-                {% else %}
-                    <button onclick="openModalAbrirCaja()" class="nav-link">Abrir Caja</button>
-                {% endif %}
             {% elif session.get('tipo_usuario') == 'user' %}
                 <button onclick="openMesasActivasPanel()" class="nav-link">🍽️ Mesas Activas</button>
             {% endif %}
@@ -72,15 +67,16 @@
         </div>
     </div>
 
+    {% if session.get('tipo_usuario') == 'cajero' %}
     <!-- Modal para abrir caja -->
     <div id="modal-abrir-caja" class="modal">
         <div class="modal-content">
             <span class="close" onclick="closeModalAbrirCaja()">&times;</span>
-            <h2>Abrir Caja</h2>
+            <h2>Iniciar turno</h2>
             <form action="{{ url_for('abrir_caja') }}" method="POST">
 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <label for="monto_inicial">Monto inicial (dinero en caja):</label>
-                <input type="number" name="monto_inicial" step="0.01" min="0" value="0" placeholder="0.00" required>
+                <input type="number" id="monto_inicial" name="monto_inicial" max="999999999.99" step="0.01" min="0" value="0" placeholder="0.00" required>
                 <p style="font-size: 12px; color: #666;">Ingresa el dinero que ya tienes en caja (cambio, etc.)</p>
                 <button type="submit" class="btn">Confirmar Apertura</button>
             </form>
@@ -91,14 +87,20 @@
     <div id="modal-cerrar-caja" class="modal">
         <div class="modal-content">
             <span class="close" onclick="closeModalCerrarCaja()">&times;</span>
-            <h2>Cerrar Caja</h2>
-            <p>¿Estás seguro de que deseas cerrar la caja?</p>
+            <h2>Realizar corte</h2>
+            <p>Cuenta el efectivo de caja, incluido el fondo inicial.</p>
             <form action="{{ url_for('cerrar_caja') }}" method="POST">
 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <button type="submit" class="btn">Confirmar Cierre</button>
+                <label for="efectivo_declarado">Efectivo contado</label>
+                <input id="efectivo_declarado" name="efectivo_declarado" type="number" inputmode="decimal" min="0" max="999999999.99" step="0.01" placeholder="0.00" required>
+                <p>Al confirmar finalizarás el turno.</p>
+                <button type="button" class="btn" onclick="closeModalCerrarCaja()">Volver</button>
+                <button type="submit" class="btn">Confirmar corte</button>
             </form>
         </div>
     </div>
+
+    {% endif %}
 
     <script>
         function openModalAbrirCaja() {

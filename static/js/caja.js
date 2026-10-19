@@ -175,6 +175,21 @@ function ticket(pedidoId) {
 }
 
 const cierresEnProcesoCaja = new Set();
+let totalCobroCaja = 0;
+
+function actualizarPagoMixtoCaja() {
+    const mixto = document.querySelector('#metodosPagoCaja input:checked').value === 'MIXTO'
+        && !document.getElementById('metodosPagoCaja').hidden;
+    const campo = document.getElementById('efectivoMixtoCaja');
+    document.getElementById('pagoMixtoCaja').hidden = !mixto;
+    campo.disabled = !mixto;
+    campo.max = ((totalCobroCaja - 1) / 100).toFixed(2);
+    const restante = totalCobroCaja - Math.round(Number(campo.value) * 100);
+    document.getElementById('transferenciaMixtaCaja').textContent =
+        Number.isFinite(restante) && restante >= 0 ? '$' + (restante / 100).toFixed(2) : 'Revisa el efectivo';
+}
+document.getElementById('metodosPagoCaja').addEventListener('change', actualizarPagoMixtoCaja);
+document.getElementById('efectivoMixtoCaja').addEventListener('input', actualizarPagoMixtoCaja);
 
 function confirmarCierrePedidoCaja(pedidoId, boton, cancelar = false) {
     const dialogo = document.getElementById('confirmarCierreCaja');
@@ -188,6 +203,11 @@ function confirmarCierrePedidoCaja(pedidoId, boton, cancelar = false) {
         : `¿Confirmas cerrar el pedido ${folio}${total ? ' por $' + total + ' MXN' : ''}? Quedará registrado como cobrado.`;
     // Al cancelar una cuenta, el botón secundario deja claro que la conserva.
     dialogo.querySelector('[value="cancelar"]').textContent = cancelar ? 'Volver' : 'Cancelar';
+    document.getElementById('metodosPagoCaja').hidden = cancelar;
+    dialogo.querySelector('[value="EFECTIVO"]').checked = true;
+    totalCobroCaja = Math.round(Number(total || 0) * 100);
+    document.getElementById('efectivoMixtoCaja').value = '';
+    actualizarPagoMixtoCaja();
     dialogo.returnValue = '';
     return new Promise(resolve => {
         dialogo.addEventListener('close', () => resolve(dialogo.returnValue === 'confirmar'), { once: true });
@@ -209,7 +229,9 @@ async function procesarPedidoCaja(pedidoId, boton, cancelar) {
     try {
         if (!await confirmarCierrePedidoCaja(pedidoId, boton, cancelar)) return;
         if (boton) boton.disabled = true;
-        await window.operarPedido(cancelar ? `/delete_pedido/${pedidoId}` : '/guardar_historico', {pedido_id: pedidoId});
+        const pago = cancelar ? {} : {metodo_pago: document.querySelector('#metodosPagoCaja input:checked').value};
+        if (pago.metodo_pago === 'MIXTO') pago.monto_efectivo = document.getElementById('efectivoMixtoCaja').value;
+        await window.operarPedido(cancelar ? `/delete_pedido/${pedidoId}` : '/guardar_historico', {pedido_id: pedidoId, ...pago});
         await actualizarPedidosCaja();
     } catch (error) {
         alert(error.message || 'No se pudo actualizar el pedido');

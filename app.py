@@ -191,14 +191,15 @@ def registrar_auditoria(accion, descripcion=None, pedido_id=None, commit=True):
                 db.session.commit()
 
 # Función para registrar movimiento de cajaa
-def registrar_movimiento_caja(tipo_movimiento, monto=None, monto_inicial=None, pedido_id=None, commit=True):
+def registrar_movimiento_caja(tipo_movimiento, monto=None, monto_inicial=None, pedido_id=None, commit=True, metodo_pago=None, monto_efectivo=None, monto_transferencia=None):
     if 'username' in session:
         movimiento = MovimientosCaja(
             tipo_movimiento=tipo_movimiento,
             monto=monto,
             monto_inicial=monto_inicial,
             usuario_id=session['username'],
-            pedido_id=pedido_id
+            pedido_id=pedido_id, metodo_pago=metodo_pago,
+            monto_efectivo=monto_efectivo, monto_transferencia=monto_transferencia
         )
         db.session.add(movimiento)
         if commit:
@@ -279,7 +280,7 @@ def index():
         pedidos_por_usuario = defaultdict(list)
         for pedido in pedidos_caja:
             pedidos_por_usuario[pedido.usuario_id].append(pedido)
-        return render_template('index_cajero.html', cat=cat, categoriaslist=categorias, pedidos_por_usuario=pedidos_por_usuario, usuarios=usuarios, caja_abierta=caja_abierta, monto_inicial=monto_inicial)
+        return render_template('index_cajero.html', cat=cat, categoriaslist=categorias, pedidos_por_usuario=pedidos_por_usuario, usuarios=usuarios, caja_abierta=caja_abierta, monto_inicial=monto_inicial, apertura=apertura_caja_activa(session['username']))
     else:
         return redirect(url_for('login'))
 
@@ -391,6 +392,10 @@ def guardar_historico():
     if not isinstance(data, dict) or type(data.get('pedido_id')) is not int:
         return jsonify({'success': False, 'message': 'Pedido inválido'}), 400
 
+    metodo_pago = data.get('metodo_pago', 'EFECTIVO')
+    if metodo_pago not in ('EFECTIVO', 'TRANSFERENCIA', 'MIXTO'):
+        return jsonify({'success': False, 'message': 'Selecciona una forma de pago válida'}), 400
+
     # Datos del pedido actual
     pedido_id = data.get('pedido_id')
 
@@ -406,7 +411,22 @@ def guardar_historico():
     if not pedido.products or not pedido.total or pedido.total <= 0:
         return jsonify({'success': False, 'message': 'No puedes cobrar una cuenta vacía'}), 400
     
-    # Cambiar estado a COBRADA en lugar de eliminar
+    total_pago = Decimal(str(pedido.total)).quantize(Decimal('0.01'))
+    efectivo_pago = total_pago if metodo_pago == 'EFECTIVO' else Decimal('0')
+    if metodo_pago == 'MIXTO':
+        try:
+            efectivo_pago = Decimal(str(data.get('monto_efectivo', '')))
+            if (not efectivo_pago.is_finite() or not 0 < efectivo_pago < total_pago
+                    or efectivo_pago != efectivo_pago.quantize(Decimal('0.01'))):
+                raise ValueError
+        except (ValueError, InvalidOperation):
+            return jsonify({'success': False, 'message': 'El efectivo debe ser mayor a cero y menor al total, con máximo dos decimales'}), 400
+    transferencia_pago = total_pago - efectivo_pago
+
+    # Guardar el desglose junto al cobro, en una sola transacción.
+    pedido.metodo_pago = metodo_pago
+    pedido.monto_efectivo = float(efectivo_pago)
+    pedido.monto_transferencia = float(transferencia_pago)
     pedido.estado = 'COBRADA'
     pedido.fecha_cobro = datetime.now()
     pedido.cajero_id = session['username']
@@ -414,7 +434,8 @@ def guardar_historico():
     # Pedidos conserva el ticket cobrado; el archivo antiguo ya no recibe copias.
     
     # Registrar movimiento de caja
-    registrar_movimiento_caja('VENTA', monto=pedido.total, pedido_id=pedido.id, commit=False)
+    registrar_movimiento_caja('VENTA', monto=pedido.total, pedido_id=pedido.id, commit=False, metodo_pago=metodo_pago,
+                             monto_efectivo=float(efectivo_pago), monto_transferencia=float(transferencia_pago))
     
     # Registrar auditoría
     registrar_auditoria('COBRAR_PEDIDO', f'Pedido {pedido.folio} cobrado por {session["username"]}', pedido.id, commit=False)
@@ -590,7 +611,7 @@ def abrir_caja():
     
     try:
         monto = Decimal(request.form.get('monto_inicial') or '0')
-        if not monto.is_finite() or monto < 0:
+        if not monto.is_finite() or monto < 0 or monto > Decimal('999999999.99'):
             raise ValueError
         monto_inicial = float(monto.quantize(Decimal('0.01')))
     except (ValueError, InvalidOperation):
@@ -638,16 +659,44 @@ def cerrar_caja():
         MovimientosCaja.id > apertura_activa.id
     ).all()
     
-    total_ventas = sum((Decimal(str(v.monto)) for v in ventas if v.monto), Decimal('0'))
-    monto_inicial = Decimal(str(apertura_activa.monto_inicial or 0))
-    total_esperado = monto_inicial + total_ventas
-    
-    registrar_movimiento_caja('CIERRE', float(total_esperado), commit=False)
-    registrar_auditoria('CERRAR_CAJA', f'Caja cerrada por {session["username"]}. Monto inicial: ${monto_inicial}, Ventas: ${total_ventas}, Total esperado: ${total_esperado}', commit=False)
+    try:
+        declarado = Decimal(request.form.get('efectivo_declarado', ''))
+        if not declarado.is_finite() or declarado < 0 or declarado > Decimal('999999999.99'):
+            raise ValueError
+        declarado = declarado.quantize(Decimal('0.01'))
+    except (ValueError, InvalidOperation):
+        flash('Ingresa el efectivo contado para registrar el corte.', 'error')
+        return redirect(url_for('index'))
+
+    efectivo = sum((Decimal(str(v.monto_efectivo if v.monto_efectivo is not None else
+                     (v.monto or 0) if v.metodo_pago in (None, 'EFECTIVO') else 0)) for v in ventas), Decimal('0'))
+    transferencias = sum((Decimal(str(v.monto_transferencia if v.monto_transferencia is not None else
+                          (v.monto or 0) if v.metodo_pago == 'TRANSFERENCIA' else 0)) for v in ventas), Decimal('0'))
+    fondo = Decimal(str(apertura_activa.monto_inicial or 0))
+    esperado = fondo + efectivo
+    diferencia = declarado - esperado
+    resumen = dict(apertura_id=apertura_activa.id, fondo=float(fondo), efectivo=float(efectivo),
+                   transferencias=float(transferencias), ventas=float(efectivo + transferencias),
+                   esperado=float(esperado), declaracion=float(declarado), diferencia=float(diferencia))
+    db.session.add(MovimientosCaja(tipo_movimiento='CIERRE', monto=float(esperado),
+        usuario_id=session['username'], efectivo_declarado=float(declarado),
+        diferencia=float(diferencia), resumen_corte=resumen))
+    registrar_auditoria('CERRAR_CAJA',
+        f'Corte de {session["username"]}. Fondo: ${fondo:.2f}, ventas efectivo: ${efectivo:.2f}, '
+        f'transferencias: ${transferencias:.2f}, esperado: ${esperado:.2f}, '
+        f'declarado: ${declarado:.2f}, diferencia: ${diferencia:.2f}', commit=False)
     db.session.commit()
-    
-    flash(f'Caja cerrada. Monto inicial: ${monto_inicial}, Ventas: ${total_ventas}, Total esperado: ${total_esperado}', 'success')
+    flash('Corte registrado. Turno finalizado.', 'success')
     return redirect(url_for('index'))
+
+@app.route('/cortes')
+@role_required('admin')
+def cortes():
+    pagina = max(1, request.args.get('pagina', 1, type=int) or 1)
+    registros = MovimientosCaja.query.filter_by(tipo_movimiento='CIERRE').order_by(
+        MovimientosCaja.id.desc()).paginate(page=pagina, per_page=30, error_out=False)
+    return render_template('cortes.html', registros=registros)
+
 
 @app.route('/auditoria')
 @role_required('admin')

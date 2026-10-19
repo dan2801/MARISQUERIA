@@ -1,12 +1,28 @@
 {% extends 'base.html' %}
 
 {% block content %}
+    <section class="turno-caja" aria-label="Turno de caja">
+        <div><strong>{{ 'Caja abierta' if caja_abierta else 'Caja cerrada' }}</strong>
+        {% if apertura %}<p>Inicio: {{ apertura.fecha_hora.strftime('%d/%m/%Y %H:%M') }}</p>{% endif %}</div>
+        <button type="button" class="btn" onclick="{{ 'openModalCerrarCaja()' if caja_abierta else 'openModalAbrirCaja()' }}">{{ 'Realizar corte' if caja_abierta else 'Iniciar turno' }}</button>
+    </section>
     <dialog id="confirmarCierreCaja" class="confirmacion-mesa" aria-labelledby="confirmarCierreCajaTitulo" aria-describedby="confirmarCierreCajaMensaje">
         <form method="dialog">
             <h2 id="confirmarCierreCajaTitulo">Cerrar pedido</h2>
             <p id="confirmarCierreCajaMensaje"></p>
+            <fieldset id="metodosPagoCaja" class="metodos-pago">
+                <legend>Forma de pago</legend>
+                <label><input type="radio" name="metodo_pago" value="EFECTIVO" checked> Efectivo</label>
+                <label><input type="radio" name="metodo_pago" value="TRANSFERENCIA"> Transferencia</label>
+                <label><input type="radio" name="metodo_pago" value="MIXTO"> Mixto</label>
+            </fieldset>
+            <div id="pagoMixtoCaja" hidden>
+                <label for="efectivoMixtoCaja">Parte en efectivo</label>
+                <input id="efectivoMixtoCaja" type="number" inputmode="decimal" min="0.01" step="0.01" placeholder="0.00" required disabled>
+                <p>Transferencia: <strong id="transferenciaMixtaCaja">$0.00</strong></p>
+            </div>
             <div class="confirmacion-mesa__acciones">
-                <button type="submit" value="cancelar" class="confirmacion-mesa__cancelar" autofocus>Cancelar</button>
+                <button type="submit" value="cancelar" formnovalidate class="confirmacion-mesa__cancelar" autofocus>Cancelar</button>
                 <button type="submit" value="confirmar" id="confirmarAccionPedidoCaja" class="confirmacion-mesa__aceptar">Sí, cerrar pedido</button>
             </div>
         </form>
