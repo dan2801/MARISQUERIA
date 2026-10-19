@@ -29,7 +29,7 @@
                     </summary>
                     <div class="product" style="flex-direction: column; padding-left: 16px; margin-top: 10px;">
                         {% for pedido in pedidos %}
-                            <div class="text_container cajero-pedido-details" id="pedido-{{ pedido.id }}" style="margin-bottom: 15px;">
+                            <div class="text_container cajero-pedido-details" id="pedido-{{ pedido.id }}" data-aviso-id="{{ pedido.id }}" data-aviso-folio="{{ pedido.folio or pedido.id }}" data-aviso-usuario="{{ pedido.usuario_id }}" style="margin-bottom: 15px;">
                                 <button type="button" class="cancelar-ticket-caja" data-folio="{{ pedido.folio or pedido.id }}"
                                         onclick="cancelarPedidoCaja({{ pedido.id }}, this)"
                                         aria-label="Cancelar pedido {{ pedido.folio or pedido.id }}" title="Cancelar pedido">

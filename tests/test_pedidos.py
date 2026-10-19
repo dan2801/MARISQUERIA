@@ -15,18 +15,176 @@ inicializar = configuracion.init_app
 
 def inicializar_pruebas():
     app, socketio = inicializar()
-    app.config.update(SQLALCHEMY_DATABASE_URI='sqlite://', TESTING=True)
+    app.config.update(SQLALCHEMY_DATABASE_URI='sqlite://', TESTING=True, CSRF_ENABLED=False)
     return app, socketio
 
 
 with patch.object(configuracion, 'init_app', inicializar_pruebas):
     from app import app, socketio
 
-from models import db, Product, Category, ProductVariant, Users, Pedidos, PedidoHistorico, Auditoria, MovimientosCaja
+from models import db, Product, Category, ProductVariant, Users, Pedidos, PedidoHistorico, Auditoria, MovimientosCaja, OperacionPedido
 from sales_reporting import resumir_ventas
 
 
 class PedidosTests(unittest.TestCase):
+    def test_error_al_guardar_no_deja_operacion_confirmada(self):
+        pedido = self.pedido('ABIERTA')
+        self.sesion()
+        with patch.object(db.session, 'commit', side_effect=RuntimeError('Fallo simulado')):
+            with self.assertRaises(RuntimeError):
+                self.cliente.post(f'/agregar_producto_pedido/{pedido.id}',
+                                  data={'producto_id': self.producto.id, 'cantidad': '1'},
+                                  headers={'Idempotency-Key': '9' * 32})
+        self.assertEqual(pedido.total, 40)
+        self.assertEqual(OperacionPedido.query.count(), 0)
+
+    def test_agregado_reintentado_aplica_una_sola_vez(self):
+        pedido = self.pedido('ABIERTA')
+        self.sesion()
+        datos = {'producto_id': self.producto.id, 'cantidad': '3'}
+        cabeceras = {'Idempotency-Key': 'a' * 32}
+        for _ in range(2):
+            respuesta = self.cliente.post(f'/agregar_producto_pedido/{pedido.id}', data=datos, headers=cabeceras)
+            self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(pedido.products[0]['cantidad'], 5)
+        self.assertEqual(Auditoria.query.filter_by(accion='AGREGAR_PRODUCTO').count(), 1)
+        respuesta = self.cliente.post(f'/agregar_producto_pedido/{pedido.id}',
+                                     data={**datos, 'cantidad': '4'}, headers=cabeceras)
+        self.assertEqual(respuesta.status_code, 409)
+        self.assertEqual(pedido.products[0]['cantidad'], 5)
+
+    def test_renglon_desactualizado_no_elimina_otro_precio(self):
+        pedido = self.pedido('ABIERTA')
+        pedido.products = [{'id': str(self.producto.id), 'nombre': 'Agua', 'precio': precio, 'cantidad': 1,
+                            'linea_id': f'fila-{precio}'} for precio in (10, 20, 30)]
+        pedido.total = 60
+        db.session.commit()
+        self.sesion()
+        for linea in ('fila-10', 'fila-20'):
+            respuesta = self.cliente.post(f'/eliminar_producto_pedido/{pedido.id}',
+                                         data={'producto_id': self.producto.id, 'linea_id': linea},
+                                         headers={'Accept': 'application/json'})
+            self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual([p['precio'] for p in pedido.products], [30])
+        respuesta = self.cliente.post(f'/eliminar_producto_pedido/{pedido.id}',
+                                     data={'producto_id': self.producto.id, 'linea_id': 'fila-20'},
+                                     headers={'Accept': 'application/json'})
+        self.assertEqual(respuesta.status_code, 404)
+        self.assertEqual(pedido.total, 30)
+
+    def test_precio_cambiado_no_crea_cuenta_hasta_confirmar(self):
+        self.sesion()
+        conexion = self.conectar()
+        datos = {'solicitud_id': 'b' * 32, 'productos': [self.item()]}
+        self.producto.price = 30
+        db.session.commit()
+        conexion.emit('nuevo_pedido', datos)
+        error = [e for e in conexion.get_received() if e['name'] == 'pedido_error'][0]['args'][0]
+        self.assertEqual(error['codigo'], 'PRECIOS_CAMBIARON')
+        self.assertEqual(Pedidos.query.count(), 0)
+        conexion.emit('nuevo_pedido', {'solicitud_id': 'c' * 32, 'productos': error['productos_actualizados']})
+        self.assertEqual(Pedidos.query.one().total, 30)
+
+    def test_cobro_reintentado_devuelve_confirmacion_sin_otra_venta(self):
+        pedido = self.pedido()
+        self.sesion('cajero', 'cajero')
+        self.cliente.post('/abrir_caja', data={'monto_inicial': 0})
+        for _ in range(2):
+            respuesta = self.cliente.post('/guardar_historico', json={'pedido_id': pedido.id},
+                                         headers={'Idempotency-Key': 'd' * 32})
+            self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(MovimientosCaja.query.filter_by(tipo_movimiento='VENTA').count(), 1)
+
+    def test_precio_agregado_cambiado_se_rechaza_sin_modificar(self):
+        pedido = self.pedido('ABIERTA')
+        self.sesion()
+        respuesta = self.cliente.post(f'/agregar_producto_pedido/{pedido.id}',
+                                     data={'producto_id': self.producto.id, 'cantidad': '1', 'precio_esperado': '10'},
+                                     headers={'Idempotency-Key': 'e' * 32})
+        self.assertEqual(respuesta.status_code, 409)
+        self.assertEqual(pedido.total, 40)
+
+    def test_nuevo_login_invalida_sesion_y_socket_anteriores(self):
+        usuario = Users.query.filter_by(username='mesero').one()
+        usuario.set_password('clave-prueba')
+        db.session.commit()
+        primero, segundo = app.test_client(), app.test_client()
+        self.assertEqual(primero.post('/login', data={'username': 'mesero', 'password': 'clave-prueba'}).status_code, 302)
+        conexion = socketio.test_client(app, flask_test_client=primero)
+        self.sockets.append(conexion)
+        self.assertTrue(conexion.is_connected())
+        self.assertEqual(segundo.post('/login', data={'username': 'mesero', 'password': 'clave-prueba'}).status_code, 302)
+        self.assertFalse(conexion.is_connected())
+        self.assertEqual(primero.get('/').status_code, 302)
+        self.assertEqual(segundo.get('/').status_code, 200)
+        self.assertEqual(usuario.version_sesion, 2)
+
+    def test_login_incorrecto_no_expulsa_sesion_activa(self):
+        usuario = Users.query.filter_by(username='mesero').one()
+        usuario.set_password('clave-prueba')
+        db.session.commit()
+        primero, segundo = app.test_client(), app.test_client()
+        primero.post('/login', data={'username': 'mesero', 'password': 'clave-prueba'})
+        segundo.post('/login', data={'username': 'mesero', 'password': 'incorrecta'})
+        self.assertEqual(primero.get('/').status_code, 200)
+        self.assertEqual(usuario.version_sesion, 1)
+
+    def test_logout_revoca_copias_de_la_misma_sesion(self):
+        usuario = Users.query.filter_by(username='mesero').one()
+        usuario.set_password('clave-prueba')
+        db.session.commit()
+        primero = app.test_client()
+        primero.post('/login', data={'username': 'mesero', 'password': 'clave-prueba'})
+        copia = app.test_client()
+        copia.set_cookie(app.config['SESSION_COOKIE_NAME'], primero.get_cookie(app.config['SESSION_COOKIE_NAME']).value)
+        self.assertEqual(copia.get('/').status_code, 200)
+        primero.post('/logout')
+        self.assertEqual(copia.get('/').status_code, 302)
+
+    def test_reintento_mismo_envio_no_duplica_pedido_ni_auditoria(self):
+        self.sesion()
+        cliente = self.conectar()
+        datos = {'solicitud_id': 'abcdef1234567890abcdef1234567890', 'productos': [self.item(2)]}
+        cliente.emit('nuevo_pedido', datos)
+        primero = [e for e in cliente.get_received() if e['name'] == 'pedido_creado'][0]['args'][0]
+        cliente.emit('nuevo_pedido', datos)
+        recibidos = cliente.get_received()
+        segundo = [e for e in recibidos if e['name'] == 'pedido_creado'][0]['args'][0]
+        self.assertEqual(primero['id'], segundo['id'])
+        self.assertEqual(segundo['solicitud_id'], datos['solicitud_id'])
+        self.assertNotIn('nuevo_pedido_creado', [e['name'] for e in recibidos])
+        self.assertEqual(Pedidos.query.count(), 1)
+        self.assertEqual(Auditoria.query.filter_by(accion='CREAR_PEDIDO').count(), 1)
+
+    def test_reintento_despues_de_reconexion_recupera_cuenta(self):
+        self.sesion()
+        cliente = self.conectar()
+        token = '1234567890abcdef1234567890abcdef'
+        cliente.emit('nuevo_pedido', {'solicitud_id': token, 'productos': [self.item()]})
+        identificador = Pedidos.query.one().id
+        cliente.disconnect()
+        self.producto.price = 99
+        db.session.commit()
+        nuevo = self.conectar()
+        nuevo.emit('nuevo_pedido', {'solicitud_id': token, 'productos': []})
+        datos = [e for e in nuevo.get_received() if e['name'] == 'pedido_creado'][0]['args'][0]
+        self.assertEqual(datos['id'], identificador)
+        self.assertEqual(Pedidos.query.one().total, 20)
+
+    def test_identificador_de_otro_usuario_no_expone_su_ticket(self):
+        self.sesion()
+        cliente = self.conectar()
+        token = 'abcdef1234567890abcdef1234567890'
+        cliente.emit('nuevo_pedido', {'solicitud_id': token, 'productos': [self.item()]})
+        cliente.get_received()
+        self.sesion('otro', 'user')
+        otro = self.conectar()
+        otro.emit('nuevo_pedido', {'solicitud_id': token, 'productos': [self.item()]})
+        eventos = otro.get_received()
+        self.assertIn('pedido_error', [e['name'] for e in eventos])
+        self.assertNotIn('pedido_creado', [e['name'] for e in eventos])
+        self.assertEqual(Pedidos.query.count(), 1)
+
     def test_mismo_nombre_permitido_en_categorias_distintas(self):
         self.sesion('admin', 'admin')
         categoria = Category(name='CAMARONES')
@@ -273,7 +431,7 @@ class PedidosTests(unittest.TestCase):
     def test_reportes_y_tickets_requieren_admin(self):
         self.sesion('mesero', 'user')
         for ruta in ('/reportes', '/tickets', '/tickets/archivo/1'):
-            self.assertEqual(self.cliente.get(ruta).status_code, 302)
+            self.assertEqual(self.cliente.get(ruta).status_code, 403)
 
     def setUp(self):
         self.contexto = app.app_context()
@@ -318,7 +476,7 @@ class PedidosTests(unittest.TestCase):
         identificador = str(self.producto.id)
         if variante:
             identificador += f'_{self.variante.id}'
-        return {'id': identificador, 'nombre': 'Nombre manipulado', 'precio': 0.01, 'cantidad': cantidad}
+        return {'id': identificador, 'nombre': 'Nombre manipulado', 'precio': 30 if variante else 20, 'cantidad': cantidad}
 
     def crear(self, productos):
         self.sesion()
@@ -429,7 +587,7 @@ class PedidosTests(unittest.TestCase):
     def test_mesero_no_puede_cobrar_ni_operar_pedido_ajeno(self):
         pedido = self.pedido('ABIERTA')
         self.sesion('otro', 'user')
-        self.assertEqual(self.cliente.post('/guardar_historico', json={'pedido_id': pedido.id}).status_code, 302)
+        self.assertEqual(self.cliente.post('/guardar_historico', json={'pedido_id': pedido.id}).status_code, 403)
         self.assertEqual(self.cliente.post(f'/delete_pedido/{pedido.id}').status_code, 403)
         self.assertEqual(self.cliente.post(f'/enviar_caja/{pedido.id}').status_code, 403)
         self.assertEqual(pedido.estado, 'ABIERTA')
@@ -507,7 +665,7 @@ class PedidosTests(unittest.TestCase):
         pedido = self.pedido()
         for usuario, rol in (('mesero', 'user'), ('cajero', 'cajero')):
             self.sesion(usuario, rol)
-            self.assertEqual(self.cliente.get(f'/auditoria/ticket/{pedido.id}').status_code, 302)
+            self.assertEqual(self.cliente.get(f'/auditoria/ticket/{pedido.id}').status_code, 403)
 
     def test_auditoria_hoy_historial_y_filtros_combinados(self):
         pedido = self.pedido('CANCELADA')
@@ -599,7 +757,7 @@ class PedidosTests(unittest.TestCase):
         self.assertEqual(creacion.ticket_snapshot['total'], 40)
         self.assertEqual(Auditoria.query.filter_by(accion='AGREGAR_PRODUCTO').one().ticket_snapshot['total'], 70)
         respuesta = self.cliente.post(f'/eliminar_producto_pedido/{pedido.id}',
-                                     data={'producto_id': self.producto.id, 'producto_indice': '1'},
+                                     data={'producto_id': self.producto.id, 'linea_id': pedido.products[1]['linea_id']},
                                      headers={'Accept': 'application/json'})
         self.assertEqual(respuesta.status_code, 200)
         self.assertEqual(pedido.total, 40)

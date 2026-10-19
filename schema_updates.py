@@ -10,6 +10,7 @@ def actualizar_esquema(engine):
     cambios = {
         'users': {'activo': 'BOOLEAN NOT NULL DEFAULT 1', 'version_sesion': 'INTEGER NOT NULL DEFAULT 0'},
         'auditoria': {'ticket_snapshot': 'JSON'},
+        'pedidos': {'solicitud_id': 'VARCHAR(64)'},
     }
     with engine.connect() as conexion:
         pendientes = any(set(columnas) - {c['name'] for c in inspect(conexion).get_columns(tabla)}
@@ -29,3 +30,4 @@ def actualizar_esquema(engine):
             for nombre, tipo in columnas.items():
                 if nombre not in existentes:
                     conexion.execute(text(f'ALTER TABLE {tabla} ADD COLUMN {nombre} {tipo}'))
+        conexion.execute(text('CREATE UNIQUE INDEX IF NOT EXISTS uq_pedidos_solicitud ON pedidos (solicitud_id)'))

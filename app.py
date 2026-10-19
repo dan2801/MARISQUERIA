@@ -1,4 +1,4 @@
-from flask import jsonify, render_template, request, redirect, url_for, flash, session
+from flask import jsonify, render_template, request, redirect, url_for, flash, session, abort
 from collections import defaultdict
 from werkzeug.utils import secure_filename
 import os
@@ -15,8 +15,29 @@ from decimal import Decimal, InvalidOperation
 from sqlalchemy import text
 from schema_updates import actualizar_esquema
 from catalogo import datos_producto, nombre_valido, variantes_validas, guardar_imagen, borrar_imagen
+import secrets
+import hmac
+from uuid import uuid4
+from operaciones import operacion_repetible, confirmar_cambio
+from renglones import actualizar_renglones
 
 app, socketio = init_app()
+app.config.setdefault('CSRF_ENABLED', True)
+app.config['MAX_CONTENT_LENGTH'] = 12 * 1024 * 1024
+
+
+def csrf_token():
+    if '_csrf_token' not in session:
+        session['_csrf_token'] = secrets.token_urlsafe(32)
+    return session['_csrf_token']
+
+
+app.jinja_env.globals['csrf_token'] = csrf_token
+
+
+def csrf_valido(token):
+    esperado = session.get('_csrf_token')
+    return isinstance(token, str) and isinstance(esperado, str) and hmac.compare_digest(token, esperado)
 
 # Agregar filtro personalizado para parsear JSON en templates
 def from_json(value):
@@ -35,7 +56,7 @@ def ordenar_tamanos(variantes):
 
 
 def usuario_actual():
-    usuario = Users.query.filter_by(username=session.get('username'), activo=True).first()
+    usuario = Users.query.filter_by(username=session.get('username'), activo=True).populate_existing().first()
     if not usuario or session.get('version_sesion', 0) != usuario.version_sesion:
         return None
     return usuario
@@ -49,6 +70,34 @@ def validar_sesion_actual():
             session.clear()
         else:
             session['tipo_usuario'] = usuario.rol
+    if request.endpoint and request.endpoint not in ('login', 'static'):
+        if 'username' not in session:
+            return redirect(url_for('login'))
+        vista = app.view_functions.get(request.endpoint)
+        permitidos = getattr(vista, 'allowed_roles', ())
+        if session.get('tipo_usuario') not in permitidos:
+            abort(403)
+    if app.config['CSRF_ENABLED'] and request.method not in ('GET', 'HEAD', 'OPTIONS'):
+        token = request.headers.get('X-CSRF-Token') or request.form.get('csrf_token')
+        if not csrf_valido(token):
+            return jsonify({'success': False, 'codigo': 'SESION_RECARGAR', 'message': 'La página venció. Recárgala e intenta nuevamente.'}), 400
+
+
+@app.after_request
+def cabeceras_seguridad(respuesta):
+    respuesta.headers['X-Content-Type-Options'] = 'nosniff'
+    respuesta.headers['X-Frame-Options'] = 'DENY'
+    respuesta.headers['Referrer-Policy'] = 'same-origin'
+    if request.endpoint != 'static':
+        respuesta.headers['Cache-Control'] = 'no-store'
+    return respuesta
+
+
+@app.errorhandler(403)
+def acceso_denegado(error):
+    if request.accept_mimetypes.best == 'application/json' or request.is_json:
+        return jsonify({'success': False, 'message': 'No tienes permiso para realizar esta acción'}), 403
+    return render_template('acceso_denegado.html'), 403
 
 
 def escritura_serializada(f):
@@ -57,6 +106,11 @@ def escritura_serializada(f):
     def wrapped(*args, **kwargs):
         try:
             db.session.execute(text('BEGIN IMMEDIATE'))
+            if request.endpoint != 'login' and not hasattr(request, 'sid') and 'username' in session:
+                if not usuario_actual():
+                    session.clear()
+                    db.session.rollback()
+                    return redirect(url_for('login'))
             resultado = f(*args, **kwargs)
             db.session.rollback()
             return resultado
@@ -75,6 +129,8 @@ def apertura_caja_activa(username):
 
 
 def desconectar_usuario(usuario_id):
+    socketio.emit('sesion_finalizada', {'message': 'Tu sesión ya no está activa. Inicia sesión nuevamente.'},
+                  to=f'usuario:{usuario_id}')
     conexiones = list(socketio.server.manager.get_participants('/', f'usuario:{usuario_id}'))
     for sid, _ in conexiones:
         socketio.server.disconnect(sid, namespace='/')
@@ -86,10 +142,10 @@ def role_required(*allowed_roles):
             if 'username' not in session:
                 return redirect(url_for('login'))
             if session.get('tipo_usuario') not in allowed_roles:
-                flash('No tienes permiso para acceder a esta página', 'error')
-                return redirect(url_for('index'))
+                abort(403)
             return f(*args, **kwargs)
         wrapped.__name__ = f.__name__
+        wrapped.allowed_roles = allowed_roles
         return wrapped
     return decorator
 
@@ -155,6 +211,7 @@ db.init_app(app)
 with app.app_context():
     db.create_all()
     actualizar_esquema(db.engine)
+    actualizar_renglones(db.engine)
 
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
 
@@ -168,6 +225,7 @@ def obtener_base_nombre(nombre):
     return nombre.lower()
 
 @app.route('/')
+@role_required('admin', 'user', 'cajero')
 def index():
     from datetime import date
     
@@ -226,7 +284,9 @@ def index():
         return redirect(url_for('login'))
 
 @socketio.on('connect')
-def conectar_notificaciones():
+def conectar_notificaciones(auth=None):
+    if app.config['CSRF_ENABLED'] and not csrf_valido((auth or {}).get('csrf_token') if isinstance(auth, dict) else None):
+        return False
     usuario = usuario_actual()
     if not usuario:
         return False
@@ -240,13 +300,25 @@ def conectar_notificaciones():
 def pedido_handler(data):
     usuario = usuario_actual()
     if not usuario or usuario.rol not in ('user', 'admin'):
-        emit('pedido_error', {'error': 'No tienes permiso para crear pedidos'})
+        emit('pedido_error', {'error': 'No tienes permiso para crear pedidos',
+                              'solicitud_id': data.get('solicitud_id') if isinstance(data, dict) else None})
         return
     try:
+        solicitud_id = data.get('solicitud_id') if isinstance(data, dict) else None
+        if solicitud_id is not None:
+            if not isinstance(solicitud_id, str) or not 16 <= len(solicitud_id) <= 64 or not all(c.isascii() and (c.isalnum() or c == '-') for c in solicitud_id):
+                raise ValueError('Identificador de envío inválido')
+            existente = Pedidos.query.filter_by(solicitud_id=solicitud_id).first()
+            if existente:
+                if existente.usuario_id != usuario.username:
+                    raise ValueError('Identificador de envío inválido')
+                emit('pedido_creado', {'id': existente.id, 'folio': existente.folio, 'solicitud_id': solicitud_id})
+                return
         if not isinstance(data, dict) or not isinstance(data.get('productos'), list) or not data['productos']:
             raise ValueError('El pedido debe contener productos')
 
         productos = []
+        precios_cambiaron = False
         for item in data['productos']:
             if not isinstance(item, dict):
                 raise ValueError('Producto inválido')
@@ -265,7 +337,20 @@ def pedido_handler(data):
                 if not variante or variante.product_id != producto.id:
                     raise ValueError('Variante de producto inválida')
                 nombre, precio = f'{producto.name} {variante.size}', variante.price
-            productos.append({'id': '_'.join(partes), 'nombre': nombre, 'precio': precio, 'cantidad': cantidad})
+            if 'precio' in item and Decimal(str(item['precio'])) != Decimal(str(precio)):
+                precios_cambiaron = True
+            identificador = '_'.join(partes)
+            repetido = next((p for p in productos if p['id'] == identificador), None)
+            if repetido:
+                repetido['cantidad'] += cantidad
+            else:
+                productos.append({'id': identificador, 'nombre': nombre, 'precio': precio, 'cantidad': cantidad,
+                                  'linea_id': uuid4().hex})
+        if precios_cambiaron:
+            emit('pedido_error', {'error': 'Los precios cambiaron. Revisa el total actualizado y vuelve a confirmar.',
+                                  'codigo': 'PRECIOS_CAMBIARON', 'productos_actualizados': productos,
+                                  'solicitud_id': solicitud_id})
+            return
 
         pedido = Pedidos(
             folio=generar_folio(),
@@ -274,7 +359,8 @@ def pedido_handler(data):
             state='pendiente',
             fecha=datetime.now(),
             products=productos,
-            usuario_id=session['username']
+            usuario_id=session['username'],
+            solicitud_id=solicitud_id
         )
         db.session.add(pedido)
         db.session.flush()
@@ -286,15 +372,20 @@ def pedido_handler(data):
         # Emitir evento para actualizar vista del mesero en tiempo real
         socketio.emit('nuevo_pedido_creado', {'id': pedido.id, 'folio': pedido.folio, 'usuario_id': session['username']})
 
-        emit('pedido_creado', {'id': pedido.id, 'total': pedido.total, 'state': pedido.state, 'fecha': pedido.fecha.strftime('%Y-%m-%d %H:%M:%S')})
+        emit('pedido_creado', {'id': pedido.id, 'folio': pedido.folio, 'solicitud_id': solicitud_id,
+                               'total': pedido.total, 'state': pedido.state, 'fecha': pedido.fecha.strftime('%Y-%m-%d %H:%M:%S')})
     except Exception as e:
         db.session.rollback()
         print('Error al crear el pedido: ' + str(e))
-        emit('pedido_error', {'error': str(e)})
+        validacion = isinstance(e, (ValueError, InvalidOperation))
+        emit('pedido_error', {'error': str(e) if validacion else 'No se pudo verificar el envío. Reintenta para consultar si se guardó.',
+                              'codigo': 'VALIDACION' if validacion else 'ESTADO_DESCONOCIDO',
+                              'solicitud_id': data.get('solicitud_id') if isinstance(data, dict) else None})
 
 @app.route('/guardar_historico', methods=['POST'])
 @role_required('cajero', 'admin')
 @escritura_serializada
+@operacion_repetible
 def guardar_historico():
     data = request.get_json(silent=True)
     if not isinstance(data, dict) or type(data.get('pedido_id')) is not int:
@@ -328,7 +419,7 @@ def guardar_historico():
     # Registrar auditoría
     registrar_auditoria('COBRAR_PEDIDO', f'Pedido {pedido.folio} cobrado por {session["username"]}', pedido.id, commit=False)
     
-    db.session.commit()
+    confirmar_cambio({'success': True, 'message': 'Pedido cobrado y guardado en historial'})
     
     # Emitir evento para que el cajero actualice su vista
     socketio.emit('pedido_cobrado', {'id': pedido.id, 'folio': pedido.folio})
@@ -344,6 +435,7 @@ def ticket(id):
 @app.route('/delete_pedido/<int:pedido_id>', methods=['POST'])
 @role_required('user', 'cajero', 'admin')
 @escritura_serializada
+@operacion_repetible
 def delete_pedido(pedido_id):
     pedido = Pedidos.query.get_or_404(pedido_id)
 
@@ -358,7 +450,7 @@ def delete_pedido(pedido_id):
     # Registrar auditoría
     registrar_auditoria('CANCELAR_PEDIDO', f'Pedido {pedido.folio} cancelado por {session["username"]}', pedido.id, commit=False)
     
-    db.session.commit()
+    confirmar_cambio()
 
     # Emitir evento para que todos actualicen en tiempo real
     socketio.emit('pedido_eliminado', {'id': pedido_id})
@@ -366,19 +458,26 @@ def delete_pedido(pedido_id):
     return {'success': True}
 
 @app.route('/login', methods=['GET', 'POST'])
+@escritura_serializada
 def login():
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
 
-        user = Users.query.filter_by(username=username, activo=True).first()
+        user = Users.query.filter_by(username=username, activo=True).populate_existing().first()
         if user and user.check_password(password):
+            user.version_sesion += 1
+            db.session.commit()
+            desconectar_usuario(user.id)
+            session.clear()
             session['username'] = user.username
             session['tipo_usuario'] = user.rol
             session['version_sesion'] = user.version_sesion
             return redirect(url_for('index'))
         else:
             flash('Usuario o contraseña incorrectos', 'error')
+    if request.method == 'GET' and request.args.get('sesion') == 'finalizada':
+        flash('Tu sesión se cerró porque se inició en otro dispositivo o fue desactivada.', 'error')
     return render_template('login.html')
 
 @app.route('/register', methods=['GET', 'POST'])
@@ -453,11 +552,16 @@ def ticket_archivo(ticket_id):
     return render_template('ticket.html', pedido=pedido, vista_auditoria=True)
 
 @app.route('/logout', methods=['POST'])
+@role_required('admin', 'user', 'cajero')
+@escritura_serializada
 def logout():
-    if 'username' in session:
-        registrar_auditoria('CERRAR_SESION', f'Usuario {session["username"]} cerró sesión')
-    session.pop('username', None)
-    session.pop('tipo_usuario', None)
+    usuario = usuario_actual() if 'username' in session else None
+    if usuario:
+        registrar_auditoria('CERRAR_SESION', f'Usuario {session["username"]} cerró sesión', commit=False)
+        usuario.version_sesion += 1
+        db.session.commit()
+        desconectar_usuario(usuario.id)
+    session.clear()
     return redirect(url_for('login'))
 
 @app.route('/abrir_caja', methods=['POST'])
@@ -632,6 +736,7 @@ def ticket_registro_auditoria(registro_id):
 @app.route('/enviar_caja/<int:pedido_id>', methods=['POST'])
 @role_required('user', 'admin')
 @escritura_serializada
+@operacion_repetible
 def enviar_caja(pedido_id):
     pedido = Pedidos.query.get_or_404(pedido_id)
     if session['tipo_usuario'] == 'user' and pedido.usuario_id != session['username']:
@@ -647,7 +752,7 @@ def enviar_caja(pedido_id):
     
     pedido.estado = 'ENVIADA_A_CAJA'
     registrar_auditoria('ENVIAR_CAJA', f'Pedido {pedido.folio} enviado a caja por {session["username"]}', pedido.id, commit=False)
-    db.session.commit()
+    confirmar_cambio()
 
     socketio.emit('ticket_enviado_caja', {
         'id': pedido.id, 'folio': pedido.folio, 'usuario_id': pedido.usuario_id
@@ -660,6 +765,7 @@ def enviar_caja(pedido_id):
 @app.route('/agregar_producto_pedido/<int:pedido_id>', methods=['POST'])
 @role_required('user', 'admin')
 @escritura_serializada
+@operacion_repetible
 def agregar_producto_pedido(pedido_id):
     pedido = Pedidos.query.get_or_404(pedido_id)
     
@@ -687,10 +793,21 @@ def agregar_producto_pedido(pedido_id):
         if not variante or variante.product_id != producto.id:
             return jsonify({'success': False, 'message': 'Selecciona un tamaño válido'}), 400
         nombre, precio = f'{producto.name} {variante.size}', variante.price
+    esperado = request.form.get('precio_esperado')
+    if esperado is not None:
+        try:
+            cambio = Decimal(esperado) != Decimal(str(precio))
+        except InvalidOperation:
+            cambio = True
+        if cambio:
+            return jsonify(success=False, codigo='PRECIO_CAMBIO', precio=precio,
+                           message='El precio cambió. Revisa el importe y confirma nuevamente.'), 409
 
     
     # Agregar producto al pedido
     productos_actuales = pedido.products if pedido.products else []
+    for renglon in productos_actuales:
+        renglon.setdefault('linea_id', uuid4().hex)
     
     # Verificar si el producto ya está en el pedido (comparar por nombre para evitar problemas con IDs compuestos)
     producto_existente = next((p for p in productos_actuales
@@ -703,7 +820,8 @@ def agregar_producto_pedido(pedido_id):
             'id': producto_id,
             'nombre': nombre,
             'precio': precio,
-            'cantidad': cantidad
+            'cantidad': cantidad,
+            'linea_id': uuid4().hex
         })
     
     pedido.products = productos_actuales
@@ -713,7 +831,7 @@ def agregar_producto_pedido(pedido_id):
     flag_modified(pedido, 'products')
     
     registrar_auditoria('AGREGAR_PRODUCTO', f'Agregado {cantidad}x {nombre} al pedido {pedido.folio}', pedido.id, commit=False)
-    db.session.commit()
+    confirmar_cambio({'success': True, 'message': 'Producto agregado al pedido'})
     
     # Emitir evento para actualizar vista del mesero
     socketio.emit('pedido_actualizado', {'id': pedido.id, 'usuario_id': session['username']})
@@ -723,6 +841,7 @@ def agregar_producto_pedido(pedido_id):
 @app.route('/eliminar_producto_pedido/<int:pedido_id>', methods=['POST'])
 @role_required('user', 'admin')
 @escritura_serializada
+@operacion_repetible
 def eliminar_producto_pedido(pedido_id):
     pedido = Pedidos.query.get_or_404(pedido_id)
     
@@ -738,17 +857,14 @@ def eliminar_producto_pedido(pedido_id):
     productos_actuales = pedido.products if pedido.products else []
     
     # Encontrar y eliminar el producto (comparar por ID que viene del formulario)
-    indice = request.form.get('producto_indice')
-    if indice is not None:
-        try:
-            posicion = int(indice)
-            producto_a_eliminar = productos_actuales[posicion] if 0 <= posicion < len(productos_actuales) else None
-            if producto_a_eliminar and str(producto_a_eliminar['id']) != producto_id:
-                producto_a_eliminar = None
-        except ValueError:
-            producto_a_eliminar = None
+    linea_id = request.form.get('linea_id')
+    if linea_id:
+        producto_a_eliminar = next((p for p in productos_actuales if p.get('linea_id') == linea_id and str(p['id']) == producto_id), None)
     else:
-        producto_a_eliminar = next((p for p in productos_actuales if str(p['id']) == producto_id), None)
+        coincidencias = [p for p in productos_actuales if str(p['id']) == producto_id]
+        if len(coincidencias) > 1:
+            return jsonify(success=False, message='Recarga las mesas para identificar el renglón correcto'), 409
+        producto_a_eliminar = coincidencias[0] if coincidencias else None
     
     if producto_a_eliminar:
         productos_actuales.remove(producto_a_eliminar)
@@ -761,7 +877,7 @@ def eliminar_producto_pedido(pedido_id):
         
         
         registrar_auditoria('ELIMINAR_PRODUCTO', f'Eliminado {producto_a_eliminar["nombre"]} del pedido {pedido.folio}', pedido.id, commit=False)
-        db.session.commit()
+        confirmar_cambio()
         
         # Emitir evento para actualizar vista del mesero
         socketio.emit('pedido_actualizado', {'id': pedido.id, 'usuario_id': session['username']})

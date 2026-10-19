@@ -4,14 +4,15 @@ document.addEventListener("DOMContentLoaded", () => {
         const modal = document.getElementById("modal-flash");
         const messageText = document.getElementById("flash-message-text");
     
-        // Puedes combinar todos los mensajes o mostrar uno a uno
-        let content = "";
+        messageText.replaceChildren();
         flashMessages.forEach(msg => {
-            const category = msg.dataset.category;
-            content += `<strong>[${category.toUpperCase()}]</strong> ${msg.textContent}<br>`;
+            const linea = document.createElement('div');
+            const categoria = document.createElement('strong');
+            categoria.textContent = `[${(msg.dataset.category || '').toUpperCase()}] `;
+            linea.append(categoria, document.createTextNode(msg.textContent));
+            messageText.appendChild(linea);
         });
     
-        messageText.innerHTML = content;
         modal.classList.add("show");
     }
     });

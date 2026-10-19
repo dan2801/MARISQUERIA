@@ -32,6 +32,7 @@
                             <h2>Editar usuario</h2>
 
                             <form action="{{ url_for('edit_user', id=user.id) }}" method="POST" enctype="multipart/form-data">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <label for="username">Nombre de usuario:</label>
                                 <input type="text" name="username" value="{{ user.username }}" required>
 
@@ -57,6 +58,7 @@
                             <h2>Eliminar usuario</h2>
                             <p>¿Estás seguro de que deseas eliminar este usuario?</p>
                             <form action="{{ url_for('delete_user', id=user.id) }}" method="POST">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <button type="submit" class="btn">Eliminar</button>
                             </form>
                         </div>
@@ -74,6 +76,7 @@
             <h2>Agregar usuario</h2>
 
             <form action="{{ url_for('register') }}" method="POST" enctype="multipart/form-data">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <label for="username">Nombre de usuario:</label>
                 <input type="text" name="username" required>
 

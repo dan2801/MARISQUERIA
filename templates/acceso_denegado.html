@@ -1,0 +1,8 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="ventas-pagina">
+    <h2>Acceso no permitido</h2>
+    <p class="ventas-subtitulo">Tu usuario no tiene permiso para entrar a este apartado.</p>
+    <a class="auditoria-ver-ticket" href="{{ url_for('index') }}">Volver a mi página</a>
+</section>
+{% endblock %}

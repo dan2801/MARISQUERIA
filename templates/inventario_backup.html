@@ -41,6 +41,7 @@
                                 <h2>Editar producto</h2>
 
                                 <form action="{{ url_for('edit', id=product.id) }}" method="POST" enctype="multipart/form-data" class="edit-product__form">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                     <div>
                                         <label for="name">Nombre:</label>
                                         <input type="text" name="name" value="{{ product.name }}" required>
@@ -161,6 +162,7 @@
                                 <h2>Editar producto</h2>
 
                                 <form action="{{ url_for('edit', id=product.id) }}" method="POST" enctype="multipart/form-data" class="edit-product__form">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                     <div>
                                         <label for="name">Nombre:</label>
                                         <input type="text" name="name" value="{{ product.name }}" required>
@@ -281,6 +283,7 @@
                                 <h2>Editar producto</h2>
 
                                 <form action="{{ url_for('edit', id=product.id) }}" method="POST" enctype="multipart/form-data" class="edit-product__form">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                     <div>
                                         <label for="name">Nombre:</label>
                                         <input type="text" name="name" value="{{ product.name }}" required>

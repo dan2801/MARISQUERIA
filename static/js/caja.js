@@ -1,10 +1,26 @@
-const socket = io();
+const socket = io({auth: {csrf_token: document.querySelector('meta[name="csrf-token"]').content}});
 let audioCaja = null;
 let ocultarAvisoCaja;
 let versionPedidosCaja = 0;
 const notasCaja = new Set();
 const ticketsNotificadosCaja = new Set();
+const claveVistosCaja = 'marisqueria:tickets-vistos:' + document.querySelector('meta[name="usuario-activo"]').content;
+let avisoSinSonidoCaja = null;
+try {
+    avisoSinSonidoCaja = JSON.parse(sessionStorage.getItem(claveVistosCaja + ':pendiente') || 'null');
+    const anteriores = JSON.parse(sessionStorage.getItem(claveVistosCaja) || 'null');
+    const ids = anteriores || Array.from(document.querySelectorAll('[data-aviso-id]'), nodo => Number(nodo.dataset.avisoId));
+    ids.forEach(id => ticketsNotificadosCaja.add(id));
+} catch (error) { /* Las notificaciones siguen funcionando sin almacenamiento. */ }
+function guardarVistosCaja() {
+    try {sessionStorage.setItem(claveVistosCaja, JSON.stringify([...ticketsNotificadosCaja]));} catch (error) {}
+}
+guardarVistosCaja();
 const estadoSonidoCaja = document.getElementById('estadoSonidoCaja');
+socket.on('sesion_finalizada', () => {
+    detenerSonidoCaja();
+    window.location.href = '/login?sesion=finalizada';
+});
 
 async function activarAudioCaja() {
     try {
@@ -18,6 +34,12 @@ async function activarAudioCaja() {
         await audioCaja.resume();
         if (audioCaja.state !== 'running') throw new Error('Audio bloqueado');
         estadoSonidoCaja.textContent = 'Alerta sonora activa: cada nuevo ticket sonará durante 5 segundos.';
+        if (avisoSinSonidoCaja) {
+            const pendiente = avisoSinSonidoCaja;
+            avisoSinSonidoCaja = null;
+            try {sessionStorage.removeItem(claveVistosCaja + ':pendiente');} catch (error) {}
+            mostrarNuevoTicketCaja(pendiente);
+        }
     } catch (error) {
         estadoSonidoCaja.textContent = 'Toca cualquier parte de la página para habilitar el audio del navegador.';
     }
@@ -82,6 +104,10 @@ function cerrarAvisoTicketCaja() {
 document.getElementById('cerrarAvisoCaja').addEventListener('click', cerrarAvisoTicketCaja);
 
 function mostrarNuevoTicketCaja(datos) {
+    if (!audioCaja || audioCaja.state !== 'running') {
+        avisoSinSonidoCaja = datos;
+        try {sessionStorage.setItem(claveVistosCaja + ':pendiente', JSON.stringify(datos));} catch (error) {}
+    }
     const aviso = document.getElementById('avisoTicketCaja');
     document.getElementById('avisoTicketCajaDetalle').textContent =
         `${datos.folio || 'Ticket #' + datos.id} · Mesero: ${datos.usuario_id}`;
@@ -104,6 +130,18 @@ async function actualizarPedidosCaja() {
         const pagina = new DOMParser().parseFromString(await respuesta.text(), 'text/html');
         const nuevo = pagina.getElementById('pedidosCaja');
         if (!nuevo || version !== versionPedidosCaja) return;
+        const nuevos = [];
+        nuevo.querySelectorAll('[data-aviso-id]').forEach(nodo => {
+            const id = Number(nodo.dataset.avisoId);
+            if (!ticketsNotificadosCaja.has(id)) {
+                ticketsNotificadosCaja.add(id);
+                nuevos.push({id, folio: nodo.dataset.avisoFolio, usuario_id: nodo.dataset.avisoUsuario});
+            }
+        });
+        guardarVistosCaja();
+        if (nuevos.length) mostrarNuevoTicketCaja(nuevos.length === 1 ? nuevos[0] : {
+            id: nuevos[nuevos.length-1].id, folio: `${nuevos.length} tickets recibidos`, usuario_id: 'Varios meseros'
+        });
         const panel = document.getElementById('pedidosCaja');
         const abiertos = Array.from(panel.querySelectorAll('details[open]')).map(detalle => ({
             grupo: detalle.dataset.grupoCaja, ticket: detalle.dataset.ticketCaja
@@ -125,6 +163,7 @@ socket.on('ticket_enviado_caja', datos => {
     void actualizarPedidosCaja();
     if (ticketsNotificadosCaja.has(datos.id)) return;
     ticketsNotificadosCaja.add(datos.id);
+    guardarVistosCaja();
     mostrarNuevoTicketCaja(datos);
 });
 socket.on('connect', actualizarPedidosCaja);
@@ -170,12 +209,7 @@ async function procesarPedidoCaja(pedidoId, boton, cancelar) {
     try {
         if (!await confirmarCierrePedidoCaja(pedidoId, boton, cancelar)) return;
         if (boton) boton.disabled = true;
-        const respuesta = await fetch(cancelar ? `/delete_pedido/${pedidoId}` : '/guardar_historico', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ pedido_id: pedidoId })
-        });
-        const datos = await respuesta.json();
-        if (!respuesta.ok || !datos.success) throw new Error(datos.message || 'No se pudo actualizar el pedido');
+        await window.operarPedido(cancelar ? `/delete_pedido/${pedidoId}` : '/guardar_historico', {pedido_id: pedidoId});
         await actualizarPedidosCaja();
     } catch (error) {
         alert(error.message || 'No se pudo actualizar el pedido');
@@ -184,3 +218,4 @@ async function procesarPedidoCaja(pedidoId, boton, cancelar) {
         if (boton) boton.disabled = false;
     }
 }
+window.addEventListener('pedido:actualizado', actualizarPedidosCaja);

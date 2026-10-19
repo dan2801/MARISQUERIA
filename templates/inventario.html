@@ -8,10 +8,10 @@
 
     {% for categoria, productos in cat.items() %}
         <div class="categorias">
-            <details onclick="toggleCategoria('{{ categoria|replace(' ', '_') }}')" style="cursor:pointer;">
+            <details onclick="toggleCategoria(this.dataset.categoria)" data-categoria="categoria-{{ loop.index }}" style="cursor:pointer;">
                 <summary>{{ categoria }}</summary>
             </details>
-            <div id="{{ categoria|replace(' ', '_') }}" class="productos products-inventario" style="display: none;">
+            <div id="categoria-{{ loop.index }}" class="productos products-inventario" style="display: none;">
                 <table style="border-collapse: collapse;">
                     <thead> 
                         <tr>
@@ -37,6 +37,7 @@
                                         <h2>Editar producto</h2>
 
                                         <form action="{{ url_for('edit', id=product.id) }}" method="POST" enctype="multipart/form-data" class="edit-product__form">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                             <div>
                                                 <label for="name">Nombre:</label>
                                                 <input type="text" name="name" value="{{ product.name }}" required>
@@ -124,6 +125,7 @@
                                 <td>
                                     <button class="btn" onclick="openModalEdit({{ product.id }})">Editar</button>
                                     <form action="{{ url_for('delete', id=product.id) }}" method="POST" style="display:inline;">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                         <button type="submit" class="btn price-btn" onclick="return confirm('¿Estás seguro de que deseas eliminar este producto?');">
                                             Eliminar
                                         </button>
@@ -148,6 +150,7 @@
             <h2>Crear producto</h2>
 
             <form action="{{ url_for('create') }}" method="POST" enctype="multipart/form-data">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <label for="name">Nombre:</label>
                 <input type="text" name="name" id="name" placeholder="ej. Cerveza" required>
 

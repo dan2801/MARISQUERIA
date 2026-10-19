@@ -28,8 +28,9 @@
             <h2>Tu pedido</h2>
             <div id="pedidoLista"></div>
             <p>Total: MXN $<span id="pedidoTotal">0</span></p>
+            <p id="estadoEnvioPedido" role="status" aria-live="polite"></p>
         </div>
-        <button onclick="enviarPedido()" class="btn btn-send">Crear Ticket</button>
+        <button id="crearTicketBoton" type="button" onclick="enviarPedido()" class="btn btn-send">Crear Ticket</button>
     </div>
 </div>
 
@@ -49,10 +50,10 @@
                                 {% for product in productos %}
                                     {% if product.variants %}
                                         {% for variant in product.variants|ordenar_tamanos %}
-                                        <option value="{{ product.id }}_{{ variant.id }}">{{ product.name }} · {{ variant.size }} - ${{ '%.2f'|format(variant.price) }}</option>
+                                        <option value="{{ product.id }}_{{ variant.id }}" data-precio="{{ variant.price }}">{{ product.name }} · {{ variant.size }} - ${{ '%.2f'|format(variant.price) }}</option>
                                         {% endfor %}
                                     {% else %}
-                                        <option value="{{ product.id }}">{{ product.name }} - ${{ '%.2f'|format(product.price) }}</option>
+                                        <option value="{{ product.id }}" data-precio="{{ product.price }}">{{ product.name }} - ${{ '%.2f'|format(product.price) }}</option>
                                     {% endif %}
                                 {% endfor %}
                             </optgroup>
@@ -92,8 +93,9 @@
                               data-confirmacion="¿Confirmas eliminar {{ producto.cantidad }} x {{ producto.nombre }} del pedido {{ pedido.folio or pedido.id }}?"
                               data-titulo="Eliminar producto" data-boton="Sí, eliminar"
                               onsubmit="return confirmarFormularioMesa(this)">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <input type="hidden" name="producto_id" value="{{ producto.id }}">
-                            <input type="hidden" name="producto_indice" value="{{ loop.index0 }}">
+                            <input type="hidden" name="linea_id" value="{{ producto.linea_id|default('') }}">
                             <button type="submit" class="btn-panel" aria-label="Eliminar producto" title="Eliminar producto">❌</button>
                         </form>
                         {% endif %}
@@ -107,6 +109,7 @@
                       data-confirmacion="¿Confirmas enviar el pedido {{ pedido.folio or pedido.id }} a caja? Después ya no podrás modificarlo."
                       data-titulo="Enviar a caja" data-boton="Sí, enviar a caja" data-exito-caja="true"
                       onsubmit="return confirmarFormularioMesa(this)">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button type="submit" class="btn-panel">📤 Enviar a Caja</button>
                 </form>
             </div>
@@ -121,11 +124,11 @@
 
 <div class="categorias">
     {% for categoria, productos in cat.items() %}
-    <details onclick="toggleCategoria('{{ categoria|replace(' ', '_') }}')" style="cursor:pointer;">
+    <details onclick="toggleCategoria(this.dataset.categoria)" data-categoria="categoria-{{ loop.index }}" style="cursor:pointer;">
         <summary>{{ categoria }}</summary>
     </details>
 
-    <div id="{{ categoria|replace(' ', '_') }}" class="productos" style="display: none;">
+    <div id="categoria-{{ loop.index }}" class="productos" style="display: none;">
         {% for product in productos %}
             <div class="product producto-mesero {% if product.variants %}producto-mesero--variantes{% endif %}">
                 <div class="image_container">
@@ -155,32 +158,13 @@
                         {% endfor %}
                     </div>
                     {% else %}
-                    <div class="right-side_container">
-                        <p class="price">MXN ${{ product.price }}</p>
-                        {% if session['tipo_usuario'] == 'user' %}
-                        <div class="btn_container">
-                            <div class="quantity">
-                                <button 
-                                    class="btn-minus" 
-                                    data-id="{{ product.id }}"
-                                    data-nombre="{{ product.name }}"
-                                    data-precio="{{ product.price }}"
-                                    data-cantidad="1">-</button>
-
-                                <div>
-                                    <!-- ahora quantity será dinámico -->
-                                    <span id="quantity-{{ product.id }}">0</span>
-                                </div>
-
-                                <button 
-                                    class="btn-plus" 
-                                    data-id="{{ product.id }}"
-                                    data-nombre="{{ product.name }}"
-                                    data-precio="{{ product.price }}"
-                                    data-cantidad="1">+</button>
-                            </div>
+                    <div class="tamano-producto platillo-cantidad" data-cantidad-producto="{{ product.id }}">
+                        <div class="tamano-producto__datos"><strong>${{ '%.2f'|format(product.price) }}</strong><span>MXN por pieza</span></div>
+                        <div class="tamano-producto__cantidad">
+                            <button type="button" class="btn-minus" data-id="{{ product.id }}" data-nombre="{{ product.name }}" data-precio="{{ product.price }}" data-cantidad="1" aria-label="Quitar uno: {{ product.name }}" disabled>−</button>
+                            <input type="number" id="quantity-{{ product.id }}" class="cantidad-tamano" value="0" min="0" step="1" inputmode="numeric" data-id="{{ product.id }}" data-nombre="{{ product.name }}" data-precio="{{ product.price }}" aria-label="Cantidad de {{ product.name }}">
+                            <button type="button" class="btn-plus" data-id="{{ product.id }}" data-nombre="{{ product.name }}" data-precio="{{ product.price }}" data-cantidad="1" aria-label="Agregar uno: {{ product.name }}">+</button>
                         </div>
-                        {% endif %}
                     </div>
                     {% endif %}
                 </div>
@@ -195,9 +179,78 @@
 {% endif %}
 
 <script>
-    const socket = io();
+    const socket = io({auth: {csrf_token: document.querySelector('meta[name="csrf-token"]').content}});
     let pedido = [];
     let enviandoPedido = false;
+    let solicitudPendiente = null;
+    let esperaEnvioPedido = null;
+    const claveBorrador = 'marisqueria:borrador:v1:' + {{ session['username']|tojson }};
+
+    function mensajeEnvioPedido(mensaje) {
+        document.getElementById('estadoEnvioPedido').textContent = mensaje;
+    }
+
+    function guardarBorradorPedido() {
+        try {
+            if (pedido.length || solicitudPendiente) {
+                sessionStorage.setItem(claveBorrador, JSON.stringify({pedido, pendiente: solicitudPendiente}));
+            } else sessionStorage.removeItem(claveBorrador);
+            return true;
+        } catch (error) {
+            mensajeEnvioPedido('El navegador no permite guardar el borrador. Habilita el almacenamiento antes de enviar.');
+            return false;
+        }
+    }
+
+    function recuperarBorradorPedido() {
+        try {
+            const guardado = JSON.parse(sessionStorage.getItem(claveBorrador) || 'null');
+            if (!guardado || !Array.isArray(guardado.pedido)) return;
+            pedido = guardado.pedido.filter(p => typeof p.id === 'string' && /^\d+(_\d+)?$/.test(p.id) &&
+                typeof p.nombre === 'string' && Number.isFinite(p.precio) && p.precio > 0 &&
+                Number.isSafeInteger(p.cantidad) && p.cantidad > 0);
+            if (guardado.pendiente && typeof guardado.pendiente.id === 'string' &&
+                /^[a-zA-Z0-9-]{16,64}$/.test(guardado.pendiente.id)) {
+                solicitudPendiente = {id: guardado.pendiente.id};
+            }
+            actualizarResumenPedido();
+            if (pedido.length || solicitudPendiente) {
+                openPedidoModal();
+                mensajeEnvioPedido(solicitudPendiente ? 'Verificando el envío pendiente…' : 'Borrador recuperado.');
+            }
+            actualizarEstadoEnvioPedido();
+        } catch (error) {
+            mensajeEnvioPedido('No se pudo recuperar el borrador.');
+        }
+    }
+
+    function actualizarEstadoEnvioPedido() {
+        const boton = document.getElementById('crearTicketBoton');
+        boton.disabled = enviandoPedido || (!pedido.length && !solicitudPendiente);
+        boton.textContent = enviandoPedido ? 'Verificando envío…' : (solicitudPendiente ? 'Reintentar envío' : 'Crear Ticket');
+        document.querySelectorAll('.cantidad-tamano, .btn-plus, .btn-minus, [data-quitar-borrador]').forEach(control => {
+            control.disabled = !!solicitudPendiente || (control.classList.contains('btn-minus') &&
+                !(pedido.find(p => p.id === control.dataset.id)?.cantidad > 0));
+        });
+    }
+
+    function interrumpirEsperaPedido() {
+        clearTimeout(esperaEnvioPedido);
+        enviandoPedido = false;
+        actualizarEstadoEnvioPedido();
+        if (solicitudPendiente) mensajeEnvioPedido('Conservamos tu pedido. Al reconectar verificaremos si ya se guardó; también puedes reintentar.');
+    }
+
+    socket.on('disconnect', interrumpirEsperaPedido);
+    socket.on('sesion_finalizada', function() {
+        guardarBorradorPedido();
+        clearTimeout(esperaEnvioPedido);
+        window.location.href = '/login?sesion=finalizada';
+    });
+    socket.on('connect_error', interrumpirEsperaPedido);
+    socket.on('connect', function() {
+        if (solicitudPendiente) enviarPedido();
+    });
     let audioConfirmacion = null;
 
     // Activar el audio durante el clic del usuario para permitirlo en móviles.
@@ -269,15 +322,7 @@
                     const botones = formulario.querySelectorAll('button');
                     botones.forEach(boton => boton.disabled = true);
                     try {
-                        const respuesta = await fetch(formulario.action, {
-                            method: 'POST',
-                            headers: { 'Accept': 'application/json' },
-                            body: new FormData(formulario)
-                        });
-                        const datos = await respuesta.json();
-                        if (!respuesta.ok || !datos.success) {
-                            throw new Error(datos.message || 'No se pudo realizar la acción');
-                        }
+                        await window.operarPedido(formulario.action, new FormData(formulario));
                         if (formulario.dataset.exitoCaja === 'true') {
                             sonarConfirmacionCaja();
                         }
@@ -299,18 +344,41 @@
     }
 
     socket.on('pedido_error', function(data) {
+        if (!solicitudPendiente || data.solicitud_id !== solicitudPendiente.id) return;
+        if (data.codigo === 'ESTADO_DESCONOCIDO') {
+            interrumpirEsperaPedido();
+            return;
+        }
+        clearTimeout(esperaEnvioPedido);
         enviandoPedido = false;
+        solicitudPendiente = null;
+        if (data.codigo === 'PRECIOS_CAMBIARON' && Array.isArray(data.productos_actualizados)) {
+            pedido = data.productos_actualizados;
+            actualizarResumenPedido();
+        }
+        guardarBorradorPedido();
+        actualizarEstadoEnvioPedido();
+        mensajeEnvioPedido(data.error || 'No se pudo crear el pedido. Tu selección se conservó.');
         alert(data.error || 'No se pudo crear el pedido');
+    });
+
+    socket.on('pedido_creado', function(data) {
+        if (!solicitudPendiente || data.solicitud_id !== solicitudPendiente.id) return;
+        clearTimeout(esperaEnvioPedido);
+        enviandoPedido = false;
+        solicitudPendiente = null;
+        pedido = [];
+        actualizarResumenPedido();
+        actualizarEstadoEnvioPedido();
+        mensajeEnvioPedido('');
+        closePedidoModal();
+        openMesasActivasPanel();
+        actualizarPanelMesasActivas();
     });
     
     // Escuchar evento de nuevo pedido creado para actualizar vista automáticamente
     socket.on('nuevo_pedido_creado', function(data) {
-        if (data.usuario_id === '{{ session["username"] }}') {
-            enviandoPedido = false;
-            pedido = [];
-            actualizarResumenPedido();
-            closePedidoModal();
-            openMesasActivasPanel();
+        if (data.usuario_id === {{ session['username']|tojson }}) {
             actualizarPanelMesasActivas();
         }
     });
@@ -318,13 +386,18 @@
     // Escuchar evento de pedido actualizado para actualizar vista automáticamente
     socket.on('pedido_actualizado', function(data) {
         console.log('Evento pedido_actualizado recibido:', data);
-        if (data.usuario_id === '{{ session["username"] }}') {
+        if (data.usuario_id === {{ session['username']|tojson }}) {
             console.log('Actualizando panel para usuario:', data.usuario_id);
             // Cerrar modal de agregar producto pero mantener panel de mesas activas
             closeAgregarProductoModal();
             // Recargar el panel de mesas activas dinámicamente
             actualizarPanelMesasActivas();
         }
+    });
+    window.addEventListener('pedido:actualizado', () => {
+        closeAgregarProductoModal();
+        openMesasActivasPanel();
+        actualizarPanelMesasActivas();
     });
 
     // Funciones para el modal de agregar producto
@@ -388,6 +461,7 @@
             const cantidad = document.getElementById('cantidadAgregar').value;
             const nombreProducto = document.getElementById('productoSelect').selectedOptions[0].textContent;
             const formData = new FormData(this);
+            formData.set('precio_esperado', document.getElementById('productoSelect').selectedOptions[0].dataset.precio);
             if (!await confirmarAccionMesa('Agregar producto',
                 `¿Confirmas agregar ${cantidad} x ${nombreProducto} al pedido ${this.dataset.folio}?`, 'Sí, agregar')) {
                 return;
@@ -407,11 +481,7 @@
             
             console.log('Enviando formulario agregar producto, pedidoId:', pedidoId);
             
-            fetch(`/agregar_producto_pedido/${pedidoId}`, {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => response.json())
+            window.operarPedido(`/agregar_producto_pedido/${pedidoId}`, formData)
             .then(data => {
                 console.log('Respuesta del servidor:', data);
                 if (data.success) {
@@ -423,8 +493,13 @@
                 }
             })
             .catch(error => {
+                if (error.datos?.codigo === 'PRECIO_CAMBIO') {
+                    const opcion = document.getElementById('productoSelect').selectedOptions[0];
+                    opcion.dataset.precio = error.datos.precio;
+                    opcion.textContent = opcion.textContent.replace(/ - \$.*$/, ' - $' + Number(error.datos.precio).toFixed(2));
+                }
                 console.error('Error:', error);
-                alert('Error al agregar producto');
+                alert(error.message || 'Error al agregar producto');
             });
         });
     } else {
@@ -433,6 +508,11 @@
     
     // 1️⃣ Manejo de clicks en todos los botones +/-
     document.addEventListener('click', function(e) {
+        const quitar = e.target.closest('[data-quitar-borrador]');
+        if (quitar) {
+            quitarDelBorrador(quitar.dataset.quitarBorrador);
+            return;
+        }
         if (e.target.classList.contains('btn-plus')) {
             const data = e.target.dataset;
             console.log('estoy dentrooo')
@@ -474,7 +554,7 @@
         document.querySelectorAll('[data-cantidad-producto]').forEach(fila => {
             if (fila.dataset.cantidadProducto !== id) return;
             fila.classList.toggle('tamano-producto--seleccionado', cantidad > 0);
-            fila.querySelector('.btn-minus').disabled = cantidad === 0;
+            fila.querySelector('.btn-minus').disabled = !!solicitudPendiente || cantidad === 0;
         });
     }
 
@@ -482,7 +562,7 @@
         if (!e.target.matches('.cantidad-tamano')) return;
         const control = e.target;
         const cantidad = Number(control.value);
-        if (enviandoPedido || !Number.isSafeInteger(cantidad) || cantidad < 0) {
+        if (solicitudPendiente || enviandoPedido || !Number.isSafeInteger(cantidad) || cantidad < 0) {
             actualizarQuantity(control.dataset.id);
             return;
         }
@@ -496,7 +576,7 @@
     
     // 2️⃣ Lógica del pedido
     function agregarAlPedido(producto) {
-        if (enviandoPedido) return;
+        if (enviandoPedido || solicitudPendiente) return;
         const existente = pedido.find(p => p.id === producto.id);
         if (existente) {
             existente.cantidad += producto.cantidad;
@@ -507,7 +587,7 @@
     }
     
     function eliminarAlPedido(producto) {
-        if (enviandoPedido) return;
+        if (enviandoPedido || solicitudPendiente) return;
         const existente = pedido.find(p => p.id === producto.id);
         if (existente) {
             existente.cantidad -= producto.cantidad;
@@ -517,22 +597,67 @@
         }
         actualizarResumenPedido();
     }
+
+    function quitarDelBorrador(id) {
+        if (enviandoPedido || solicitudPendiente) return;
+        pedido = pedido.filter(p => p.id !== id);
+        actualizarResumenPedido();
+    }
     
     function actualizarResumenPedido() {
         const lista = document.getElementById('pedidoLista');
         const totalSpan = document.getElementById('pedidoTotal');
-        lista.innerHTML = '';
+        lista.replaceChildren();
         let total = 0;
     
         pedido.forEach(p => {
-            const item = document.createElement('li');
-            item.textContent = `${p.nombre} x${p.cantidad} - MXN $${(p.cantidad * p.precio).toFixed(2)}`;
+            const item = document.createElement('div');
+            item.className = 'pedido-resumen-fila';
+            const datos = document.createElement('div');
+            datos.className = 'pedido-resumen-datos';
+            const nombre = document.createElement('strong');
+            nombre.textContent = p.nombre;
+            const importe = document.createElement('small');
+            importe.textContent = `$${p.precio.toFixed(2)} c/u · $${(p.cantidad * p.precio).toFixed(2)} MXN`;
+            datos.append(nombre, importe);
+            const controles = document.createElement('div');
+            controles.className = 'pedido-resumen-controles tamano-producto__cantidad';
+            ['minus', 'plus'].forEach(accion => {
+                const boton = document.createElement('button');
+                boton.type = 'button';
+                boton.className = 'btn-' + accion;
+                Object.assign(boton.dataset, {id: p.id, nombre: p.nombre, precio: String(p.precio), cantidad: '1'});
+                boton.textContent = accion === 'minus' ? '−' : '+';
+                boton.setAttribute('aria-label', (accion === 'minus' ? 'Quitar uno: ' : 'Agregar uno: ') + p.nombre);
+                if (accion === 'plus') {
+                    const cantidad = document.createElement('span');
+                    cantidad.className = 'pedido-resumen-unidades';
+                    cantidad.textContent = p.cantidad;
+                    controles.appendChild(cantidad);
+                }
+                controles.appendChild(boton);
+            });
+            const quitar = document.createElement('button');
+            quitar.type = 'button';
+            quitar.className = 'pedido-resumen-quitar';
+            quitar.dataset.quitarBorrador = p.id;
+            quitar.textContent = 'Quitar';
+            quitar.setAttribute('aria-label', 'Quitar del ticket: ' + p.nombre);
+            controles.appendChild(quitar);
+            item.append(datos, controles);
             lista.appendChild(item);
             total += p.cantidad * p.precio;
         });
+        if (!pedido.length) {
+            const vacio = document.createElement('p');
+            vacio.textContent = 'Aún no has agregado artículos.';
+            lista.appendChild(vacio);
+        }
     
         totalSpan.textContent = total.toFixed(2);
         document.querySelectorAll('[id^="quantity-"]').forEach(control => actualizarQuantity(control.id.slice(9)));
+        guardarBorradorPedido();
+        actualizarEstadoEnvioPedido();
     }
     
     // 3️⃣ Modal
@@ -547,15 +672,33 @@
     
     // 4️⃣ Envío de pedido
     function enviarPedido() {
-        if (enviandoPedido || pedido.length === 0) return;
+        if (enviandoPedido || (pedido.length === 0 && !solicitudPendiente)) return;
+        if (!socket.connected) {
+            mensajeEnvioPedido('Sin conexión. Tu selección se conserva; vuelve a intentar cuando regrese la conexión.');
+            guardarBorradorPedido();
+            return;
+        }
+        if (!solicitudPendiente) {
+            const bytes = new Uint8Array(16);
+            window.crypto.getRandomValues(bytes);
+            solicitudPendiente = {id: Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('')};
+        }
+        if (!guardarBorradorPedido()) {
+            solicitudPendiente = null;
+            return;
+        }
         enviandoPedido = true;
-        const total = document.getElementById('pedidoTotal').textContent;
+        actualizarEstadoEnvioPedido();
+        mensajeEnvioPedido('Confirmando que el pedido se haya guardado…');
+        clearTimeout(esperaEnvioPedido);
+        esperaEnvioPedido = setTimeout(interrumpirEsperaPedido, 15000);
         socket.emit('nuevo_pedido', { 
-            total: total,
+            solicitud_id: solicitudPendiente.id,
             state: 'pendiente',
             productos: pedido
         });
     }
+    recuperarBorradorPedido();
     </script>
 
 {% endblock %}

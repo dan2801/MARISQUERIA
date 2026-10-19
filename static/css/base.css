@@ -233,9 +233,9 @@ body {
 .catalogo-variante-fila { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
 .catalogo-variante-fila input { flex: 1 1 100px; min-width: 0; width: 100%; }
 
-.producto-mesero--variantes { flex-wrap: wrap; align-content: flex-start; gap: 12px; }
-.producto-mesero--variantes > .image_container { margin-right: 0; }
-.producto-mesero--variantes > .text_container { flex: 1 1 240px; min-width: 0; gap: 12px; }
+.producto-mesero { flex-wrap: wrap; align-content: flex-start; gap: 12px; }
+.producto-mesero > .image_container { margin-right: 0; }
+.producto-mesero > .text_container { flex: 1 1 240px; min-width: 0; gap: 12px; }
 .tamanos-producto { display: grid; gap: 10px; width: 100%; }
 .tamanos-producto .tamanos-producto__ayuda { font-size: 0.82rem; margin: 2px 0; line-height: 1.5; }
 .tamano-producto {
@@ -249,7 +249,7 @@ body {
 .tamano-producto__datos span { font-size: 0.85rem; }
 .tamano-producto__cantidad { display: flex; align-items: center; gap: 8px; }
 .tamano-producto__cantidad button {
-    width: 46px; height: 46px; flex-shrink: 0; border-radius: 10px;
+    width: 48px; height: 48px; flex-shrink: 0; border-radius: 10px;
     font: inherit; font-size: 1.5rem; font-weight: 600; touch-action: manipulation;
 }
 .tamano-producto__cantidad .btn-plus { background: #4b3621; color: white; }
@@ -257,20 +257,32 @@ body {
 .tamano-producto__cantidad button:hover { transform: none; filter: brightness(0.93); }
 .tamano-producto__cantidad button:disabled { opacity: 0.35; cursor: default; }
 .tamano-producto__cantidad .cantidad-tamano {
-    width: 54px; height: 46px; padding: 4px; border: 1px solid #b99a7e; border-radius: 8px;
+    width: 54px; height: 48px; padding: 4px; border: 1px solid #b99a7e; border-radius: 8px;
     background: #fffaf6; color: #4b3621; font: inherit; font-size: 1.1rem; font-weight: 700;
     text-align: center; appearance: textfield; margin: 0;
 }
 .cantidad-tamano::-webkit-inner-spin-button, .cantidad-tamano::-webkit-outer-spin-button { appearance: none; margin: 0; }
 .tamano-producto__cantidad :focus-visible { outline: 3px solid #a47443; outline-offset: 2px; }
-.pedido-mesero-visible .categorias { padding-bottom: 230px; }
-#pedidoModal .modal-content-delivery { max-height: 220px; gap: 16px; align-items: center; padding-right: 48px; }
-#pedidoLista { max-height: 110px; overflow-y: auto; margin: 8px 0; line-height: 1.6; }
+.pedido-mesero-visible .categorias { padding-bottom: min(65dvh, 430px); }
+#pedidoModal .modal-content-delivery { max-height: min(60dvh, 400px); gap: 16px; align-items: center; padding-right: 48px; overflow-y: auto; overscroll-behavior: contain; }
+#pedidoModal .modal-content-delivery > div { flex: 1; min-width: 0; }
+#pedidoLista { max-height: min(30dvh, 210px); overflow-y: auto; margin: 8px 0; line-height: 1.6; padding-right: 6px; }
+.pedido-resumen-fila { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid #d9c4b3; }
+.pedido-resumen-datos { display: flex; flex-direction: column; gap: 4px; flex: 1 1 160px; min-width: 0; }
+.pedido-resumen-datos strong { overflow-wrap: anywhere; font-size: 0.9rem; }
+.pedido-resumen-datos small { font-size: 0.8rem; }
+.pedido-resumen-unidades { min-width: 30px; text-align: center; font-weight: 700; font-size: 1.1rem; }
+.pedido-resumen-controles .pedido-resumen-quitar { width: auto; min-width: 64px; padding: 0 10px; font-size: 0.8rem; background: #fff0ed; color: #b42318; border: 1px solid #eab8b2; }
+#estadoEnvioPedido { max-width: 440px; margin-top: 6px; font-size: 0.8rem; line-height: 1.4; }
 @media (max-width: 450px) {
-    .producto-mesero--variantes > .text_container { flex-basis: 100%; }
+    .producto-mesero > .text_container { flex-basis: 100%; }
     #pedidoModal .modal-content-delivery { flex-wrap: wrap; }
+    #pedidoModal .modal-content-delivery > div { flex-basis: 100%; }
     #pedidoModal .btn-send { margin: 0; }
 }
+
+.operacion-pendiente { position: fixed; bottom: 16px; right: 16px; z-index: 2200; max-width: min(380px, calc(100% - 32px)); padding: 16px; background: #fffaf6; border: 1px solid #996b42; border-radius: 12px; box-shadow: 0 8px 28px #4b362144; font-size: 0.85rem; line-height: 1.5; }
+.operacion-pendiente button { margin-top: 10px; padding: 12px; background: #4b3621; color: white; font: inherit; border-radius: 8px; }
 
 /* NAV SECTION */
 header {

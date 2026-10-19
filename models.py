@@ -43,6 +43,7 @@ class Users(db.Model):
 class Pedidos(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     folio = db.Column(db.String(20), unique=True, nullable=True)
+    solicitud_id = db.Column(db.String(64), unique=True, nullable=True)
     estado = db.Column(db.String(20), default='ABIERTA')  # ABIERTA, ENVIADA_A_CAJA, COBRADA, CANCELADA
     state = db.Column(db.String(20), default='pendiente')  # Mantener por compatibilidad
     fecha = db.Column(db.DateTime, default=datetime.now)
@@ -78,3 +79,11 @@ class MovimientosCaja(db.Model):
     usuario_id = db.Column(db.String(80), db.ForeignKey('users.username'), nullable=False)
     fecha_hora = db.Column(db.DateTime, default=datetime.now)
     pedido_id = db.Column(db.Integer, db.ForeignKey('pedidos.id'), nullable=True)
+
+
+class OperacionPedido(db.Model):
+    clave = db.Column(db.String(64), primary_key=True)
+    usuario_id = db.Column(db.Integer, nullable=False)
+    huella = db.Column(db.String(64), nullable=False)
+    respuesta = db.Column(db.JSON, nullable=False)
+    fecha = db.Column(db.DateTime, default=datetime.now)

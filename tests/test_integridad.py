@@ -8,11 +8,50 @@ from contextlib import closing
 
 from sqlalchemy import create_engine, inspect
 from test_pedidos import app, socketio, db
-from models import Users, Category, Product, Pedidos, Auditoria, MovimientosCaja
+from models import Users, Category, Product, Pedidos, Auditoria, MovimientosCaja, OperacionPedido
 from schema_updates import actualizar_esquema
 
 
 class IntegridadTests(unittest.TestCase):
+    def test_agregados_simultaneos_misma_clave_se_aplican_una_vez(self):
+        pedido_id = self.cuenta()
+        pedido = db.session.get(Pedidos, pedido_id)
+        pedido.estado = 'ABIERTA'
+        db.session.commit()
+        db.session.remove()
+        barrera = threading.Barrier(2)
+        def agregar(_):
+            cliente = self.cliente('mesero', 'user')
+            barrera.wait(timeout=5)
+            return cliente.post(f'/agregar_producto_pedido/{pedido_id}',
+                                data={'producto_id': self.producto_id, 'cantidad': '2'},
+                                headers={'Idempotency-Key': 'f' * 32}).status_code
+        with ThreadPoolExecutor(max_workers=2) as ejecutor:
+            self.assertEqual(list(ejecutor.map(agregar, range(2))), [200, 200])
+        self.assertEqual(db.session.get(Pedidos, pedido_id).products[0]['cantidad'], 3)
+        self.assertEqual(OperacionPedido.query.count(), 1)
+
+    def test_logins_simultaneos_dejan_solo_una_sesion_valida(self):
+        usuario = Users.query.filter_by(username='mesero').one()
+        usuario.set_password('clave-prueba')
+        db.session.commit()
+        db.session.remove()
+        barrera = threading.Barrier(2)
+        def iniciar(_):
+            cliente = app.test_client()
+            barrera.wait(timeout=5)
+            respuesta = cliente.post('/login', data={'username': 'mesero', 'password': 'clave-prueba'})
+            self.assertEqual(respuesta.status_code, 302)
+            return cliente
+        with ThreadPoolExecutor(max_workers=2) as ejecutor:
+            clientes = list(ejecutor.map(iniciar, range(2)))
+        estados = [cliente.get('/').status_code for cliente in clientes]
+        self.assertEqual(sorted(estados), [200, 302])
+        self.assertEqual(Users.query.filter_by(username='mesero').one().version_sesion, 2)
+        anterior = clientes[estados.index(302)]
+        anterior.post('/logout')
+        self.assertEqual(clientes[estados.index(200)].get('/').status_code, 200)
+
     def setUp(self):
         self.carpeta = tempfile.TemporaryDirectory()
         self.contexto = app.app_context()
@@ -101,7 +140,13 @@ class IntegridadTests(unittest.TestCase):
         self.assertEqual(cierre.monto, 100 + sum(v.monto for v in ventas))
         self.assertEqual(estados[1], 200 if ventas else 400)
 
-    def crear_simultaneamente(self):
+    def test_mismo_envio_simultaneo_se_confirma_sin_duplicarse(self):
+        eventos = self.crear_simultaneamente('1234567890abcdef1234567890abcdef')
+        self.assertEqual(sum('pedido_creado' in lista for lista in eventos), 2)
+        self.assertEqual(Pedidos.query.count(), 1)
+        self.assertEqual(Auditoria.query.filter_by(accion='CREAR_PEDIDO').count(), 1)
+
+    def crear_simultaneamente(self, solicitud_id=None):
         db.session.remove()
         barrera = threading.Barrier(2)
         def crear(_):
@@ -109,7 +154,10 @@ class IntegridadTests(unittest.TestCase):
             conexion = socketio.test_client(app, flask_test_client=cliente)
             try:
                 barrera.wait(timeout=5)
-                conexion.emit('nuevo_pedido', {'productos': [{'id': str(self.producto_id), 'cantidad': 1}]})
+                datos = {'productos': [{'id': str(self.producto_id), 'cantidad': 1}]}
+                if solicitud_id:
+                    datos['solicitud_id'] = solicitud_id
+                conexion.emit('nuevo_pedido', datos)
                 return [evento['name'] for evento in conexion.get_received()]
             finally:
                 conexion.disconnect()
@@ -123,6 +171,7 @@ class IntegridadTests(unittest.TestCase):
             conexion.execute('CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT)')
             conexion.execute('INSERT INTO users (username) VALUES (?)', ('existente',))
             conexion.execute('CREATE TABLE auditoria (id INTEGER PRIMARY KEY, accion TEXT)')
+            conexion.execute('CREATE TABLE pedidos (id INTEGER PRIMARY KEY)')
             conexion.execute('INSERT INTO auditoria (accion) VALUES (?)', ('CREAR_PEDIDO',))
             conexion.commit()
         motor = create_engine('sqlite:///' + ruta.as_posix())

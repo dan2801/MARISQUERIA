@@ -2,6 +2,10 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <meta name="usuario-activo" content="{{ session.get('username', '') }}">
+    <script src="{{ url_for('static', filename='js/seguridad.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/operaciones.js') }}"></script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Marisquería La Flor del Puerto{% endblock %}</title>
     <link rel="icon" href="{{ url_for('static', filename='images/logo.png') }}" type="image/png">
@@ -74,6 +78,7 @@
             <span class="close" onclick="closeModalAbrirCaja()">&times;</span>
             <h2>Abrir Caja</h2>
             <form action="{{ url_for('abrir_caja') }}" method="POST">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <label for="monto_inicial">Monto inicial (dinero en caja):</label>
                 <input type="number" name="monto_inicial" step="0.01" min="0" value="0" placeholder="0.00" required>
                 <p style="font-size: 12px; color: #666;">Ingresa el dinero que ya tienes en caja (cambio, etc.)</p>
@@ -89,6 +94,7 @@
             <h2>Cerrar Caja</h2>
             <p>¿Estás seguro de que deseas cerrar la caja?</p>
             <form action="{{ url_for('cerrar_caja') }}" method="POST">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button type="submit" class="btn">Confirmar Cierre</button>
             </form>
         </div>

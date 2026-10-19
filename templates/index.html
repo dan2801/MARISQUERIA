@@ -10,11 +10,11 @@
 
         <div class="categorias">
             {% for categoria, productos in cat.items() %}
-            <details onclick="toggleCategoria('{{ categoria|replace(' ', '_') }}')" style="cursor:pointer;">
+            <details onclick="toggleCategoria(this.dataset.categoria)" data-categoria="categoria-{{ loop.index }}" style="cursor:pointer;">
                 <summary>{{ categoria }}</summary>
             </details>
 
-            <div id="{{ categoria|replace(' ', '_') }}" class="productos" style="display: none;">
+            <div id="categoria-{{ loop.index }}" class="productos" style="display: none;">
                 {% for product in productos %}
                     <div class="product">
                         <div class="image_container">
@@ -47,6 +47,7 @@
                                             <h2>Editar producto</h2>
 
                                             <form action="{{ url_for('edit', id=product.id) }}" method="POST" enctype="multipart/form-data" class="edit-product__form">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                                 <div>
                                                     <label for="name">Nombre:</label>
                                                     <input type="text" name="name" value="{{ product.name }}" required>
@@ -131,6 +132,7 @@
                                     </div>
 
                                     <form action="{{ url_for('delete', id=product.id) }}" method="POST" style="display:inline;">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                         <button type="submit" class="btn price-btn" onclick="return confirm('¿Estás seguro de que deseas eliminar este producto?');">
                                             <svg  xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 24 24" ><path d="M20 4H8.51c-.64 0-1.25.31-1.63.84l-4.7 6.58a.99.99 0 0 0 0 1.16l4.7 6.58c.37.52.98.84 1.63.84H20c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2m0 14H8.51l-4.29-6 4.29-6H20z"></path><path d="m9.79 9.21 2.8 2.79-2.8 2.79 1.42 1.42 2.79-2.8 2.79 2.8 1.42-1.42-2.8-2.79 2.8-2.79-1.42-1.42-2.79 2.8-2.79-2.8z"></path>
                                             </svg>
@@ -155,6 +157,7 @@
             <h2>Crear producto</h2>
 
             <form action="{{ url_for('create') }}" method="POST" enctype="multipart/form-data">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <label for="name">Nombre:</label>
                 <input type="text" name="name" id="name" placeholder="ej. Cerveza" required>
 
@@ -198,6 +201,7 @@
             <h2>Crear categoría</h2>
 
             <form action="{{ url_for('create_category') }}" method="POST" enctype="multipart/form-data">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <label for="name">Nombre:</label>
                 <input type="text" name="name" id="name" placeholder="ej. Bebidas" required>
 
@@ -213,6 +217,7 @@
             <h2>Eliminar categoría</h2>
 
             <form action="{{ url_for('delete_category') }}" method="POST" enctype="multipart/form-data">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <label for="categoria">Categoria:</label>
                 <select name="categoria" id="categoria" required>
                     {% for categoria in categoriaslist %}
